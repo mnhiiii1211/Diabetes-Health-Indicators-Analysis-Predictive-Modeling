@@ -1,0 +1,1945 @@
+---
+title: "Final Project - Xử lý số liệu thống kê"
+output: html_document
+date: "2026-01-13"
+---
+
+# Phân công công việc
+
+22110145 - Lê Vũ Uyễn Nhi 
+
+
+22110146 - Lý Mẫn Nhi 
+
+
+22110175 - Nguyễn Bửu Đăng Quang 
+
+
+22110186 - Trần Thị Tú Quỳnh 
+
+
+# Project 5 - CDC Diabetes Health Indicators
+
+# I. Giới thiệu
+Hiện nay, bệnh tiểu đường là một căn bệnh mãn tính phổ biến nhất trên thế giới, khiến bệnh nhân mất khả năng điều chỉnh hiệu quả lượng glucose trong máu và có thể dẫn đến giảm chất lượng cuộc sống và tuổi thọ, đồng thời dễ dẫn tới các biến chứng sức khỏe nghiêm trọng như bệnh tim, mất thị lực, cắt cụt chi dưới và bệnh thận, gây nên một áp lực kinh tế rất lớn.\
+
+Chẩn đoán sớm tình trạng bệnh tiểu đường và tiền tiểu đường rất quan trọng, giúp người bệnh  thay đổi lối sống và điều trị hiệu giúp kiểm soát và làm chậm sự xuất hiện của các biến chứng.\
+
+Bằng cách tận dụng bộ dữ liệu khảo sát Behavioral Risk Factor Surveillance System (BRFSS) 2015 do CDC thực hiện, xây dựng các mô hình dự đoán có thể đánh giá chính xác nguy cơ mắc bệnh tiểu đường dựa trên nhiều chỉ số sức khỏe khác nhau(từ hành vi sức khỏe đến các bệnh lý nền, và việc sử dụng các dịch vụ phòng ngừa).\
+
+## 1.1 Mục đích 
+
+Áp dụng các kỹ thuật học máy để dự đoán nguy cơ mắc bệnh tiểu đường của một cá nhân dựa trên những câu trả lời được cung cấp trong khảo sát. Đồng thời, xác định những yếu tố có khả năng dự đoán bệnh tiểu đường cao nhất nhằm cung cấp những hiểu biết có giá trị cho những bên liên quan.\
+
+## 1.2 Khai báo các thư viện sử dụng
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(123)
+
+library(tidyverse)
+library(emplik)
+library(caret)
+library(ggplot2)
+library(knitr)
+library(smotefamily)
+library(nnet)
+library(caret)
+library(rsample)
+library(ResourceSelection)
+library(rms)
+library(recipes)
+library(themis)
+library(mgcv)
+library(pROC)
+library(janitor)
+library(dplyr)
+```
+
+# II. EDA
+## 2.1 Đọc dữ liệu
+
+```{r}
+df <- read_csv("diabetes_012_health_indicators_BRFSS2015.csv")
+```
+
+```{r}
+cat("Tổng số giá trị bị khuyết trong toàn bộ dữ liệu:\n")
+sum(is.na(df))
+cat("Số lượng dữ liệu bị khuyết theo từng biến:\n")
+colSums(is.na(df))
+```
+**Nhận xét**: Tập dữ liệu sạch và đầy đủ, không cần phải điền hay loại bỏ dữ liệu thiếu. \
+
+```{r}
+cat("Cấu trúc bộ dữ liệu:\n")
+glimpse(df)
+```
+
+**Nhận xét**: Bộ dữ liệu gồm 229781 biến và 22 cột, trong đó có 3 biến định lượng là `BMI`,`GenHlth`, `PhysHlth`, 4 biến định tính thứ bậc `Age`, `Education`, `Income`, `GenHlth` và các biến còn lại là định tính. Trong đó, các biến có dạng như sau:\
+\- `Diabetes_012`: tình trạng bệnh tiểu đường (0: không tiểu đường, 1: tiền tiểu đường, 2: tiểu đường).\
+\- `HighBP`: tình trạng cao huyết áp (0/1).\
+\- `HighChol`: tình trạng cao cholesterol (0/1).\
+\- `CholCheck`: kiểm tra cholesterol trong 5 năm (0/1).\
+\- `BMI`: Body Mass Index.\
+\- `Smoke`: người đã hút ít nhất 100 điếu thuốc trong suốt cuộc đời mình (0/1), [lưu ý: 5 gói = 100 điếu thuốc].\
+\- `Stroker`: đã từng đột quỵ (0/1).\
+\- `HeartDiseaseorAttack`: bệnh tim mạch vành (CHD) hoặc nhồi máu cơ tim (MI),(0/1).\
+\- `PhysActivity`: hoạt động thể chất trong vòng 30 ngày, không tính hoạt động liên quan tới công việc, (0/1).\
+\- `Fruits`: có ăn trái cây ít nhất 1 lần mỗi ngày (0/1).\
+\- `Veggies`: có ăn rau/củ ít nhất 1 lần mỗi ngày (0/1).\
+\- `HvyAlcoholConsump`: uống rượu/bia ở mức “nặng” (heavy drinking) (0/1).\
+\- `AnyHealthcare`: có bảo hiểm y tế hoặc có khả năng tiếp cận dịch vụ chăm sóc sức khỏe (0/1).\
+\- `NoDocbcCost`: trong 12 tháng qua có từng không đi khám bác sĩ vì chi phí quá cao (0/1).\
+\- `GenHlth`: tự đánh giá sức khỏe tổng quát (1: Excellent → 5: Poor).\
+\- `MentHlth`: số ngày sức khỏe tinh thần không tốt trong 30 ngày gần nhất (0–30).\
+\- `PhysHlth`: số ngày sức khỏe thể chất không tốt trong 30 ngày gần nhất (0–30).\
+\- `DiffWalk`: gặp khó khăn khi đi bộ hoặc leo cầu thang (0/1).\
+\- `Sex`: giới tính (0: nữ, 1: nam).\
+\- `Age`: tuổi (13 nhóm).\
+\- `Education:` cấp giáo dục đã hoàn thành (6 cấp giáo dục).\
+\- `Income`: mức thu nhập (8 mức thu nhập).\
+\- `GenHlth`: điểm tự đánh giá sức khỏe chung (5 mức).\
+
+## 2.2 Xem xét biến mục tiêu `Diabetes_012`
+
+```{r}
+df |> 
+  count(Diabetes_012) |> 
+  mutate(percentage = round(100 * n / sum(n), 2))
+```
+
+```{r}
+ggplot(df, aes(x = factor(Diabetes_012))) +
+  geom_bar() +
+  labs(
+    title = "Biểu đồ phân bố của biến Diabetes_012",
+    x = "Tình trạng tiểu dường (0 = No, 1 = Prediabetes, 2 = Diabetes)",
+    y = "Số lượng"
+  ) +
+  theme_minimal()
+```
+
+**Nhận xét:** Dữ liệu bị mất cân bằng với số lượng nghiêng hẳn về nhóm 0 (chiếm tỉ lệ 82.71% trong bộ dữ liệu), hai biến còn lại nhóm 1 chỉ chiếm 2.01% và nhóm 2 chiếm 15.27%.\
+
+## 2.3 Gộp biến thành biến mục tiêu mới `Diabetes_binary`
+Trong nghiên cứu này, biến Diabetes_012 ban đầu được mã hóa thành ba mức:
+0 – không tiểu đường, 1 – tiền tiểu đường, và 2 – tiểu đường. Tuy nhiên, đối với phân tích tiếp theo, biến này được gộp thành biến nhị phân bao gồm 0 - không tiểu đường và 1 - có nguy cơ tiểu đường (bao gồm biến 1 và 2 ban đầu) nhằm: \
+\- Đơn giản hóa biến mục tiêu. \
+\- Tăng kích thước mẫu của nhóm "có nguy cơ tiểu đường". \
+\- Giảm ảnh hưởng của mất cân bằng lớp. \
+
+```{r}
+df <- df |>
+  mutate(Diabetes_binary = ifelse(Diabetes_012 >= 1, 1, 0))
+
+df$Diabetes_binary <- as.factor(df$Diabetes_binary)
+
+df |>
+  count(Diabetes_binary) |>
+  mutate(percentage = round(100 * n / sum(n), 2))
+```
+
+```{r}
+ggplot(df, aes(x = factor(Diabetes_binary))) +
+  geom_bar() +
+  labs(
+    title = "Biểu đồ phân bố của biến Diabetes_012 sau khi gộp biến",
+    x = "Tình trạng tiểu dường (0 = Không tiểu đường, 1 = Nguy cơ tiểu đường)",
+    y = "Số lượng"
+  ) +
+  theme_minimal()
+```
+
+**Nhận xét:** Sau khi gộp, đối biến của 0 có số lượng tăng lên thành 15.76%, tuy nhiên dữ liệu vẫn còn xảy ra việc mất cân bằng nặng.\
+
+## 2.4 Xem xét biến `BMI`.
+
+BMI là chỉ số khối của cơ thể được tính thông qua cân nặng và chiều cao của riêng một cá nhân. Phân loại Chỉ số BMI (theo WHO) như sau:\
+
+### Phân loại chỉ số khối cơ thể (BMI)
+
+| Chỉ số khối cơ thể (BMI) | Phân loại        | Nguy cơ phát triển bệnh |
+|-------------------------|------------------|--------------------------|
+| < 18.5                  | Gầy              | Thấp                     |
+| 18.5 – 24.9             | Bình thường      | Trung bình               |
+| 25.0 – 29.9             | Hơi béo          | Cao                      |
+| 30.0 – 34.9             | Béo phì cấp độ 1 | Cao                      |
+| 35.0 – 39.9             | Béo phì cấp độ 2 | Rất cao                  |
+| ≥ 40.0                  | Béo phì cấp độ 3 | Nguy hiểm                |
+
+Vì đây là biến thường được quan tâm nhất trong việc xem xét tiểu đường nên nhóm tiến hành xem xét:
+
+```{r}
+summary(df$BMI)
+```
+
+**Nhận xét:** Ta thấy rằng Median BMI là 27.0, cao hơn ngưỡng BMI bình thường, điều này cho thấy đa số mẫu khảo sát nằm trong nhóm thừa cân. Mean là 28.38, lớn hơn median, sự chênh lệch này cho thấy phân phối BMI lệch phải, do ảnh hưởng của các giá trị BMI cao. IQR cũng cho thấy đa số mẫu lấy bao phủ từ ngưỡng bình thường đến béo phì độ 1 (Q1 = 24.0 đến Q3 = 31.0).\
+
+```{r}
+# Boxplot BMI cho biến Diabetes_012
+ggplot(df, aes(x = factor(Diabetes_012), y = BMI)) +
+  geom_boxplot(fill = "grey80") +
+  labs(
+    title = "Biểu đồ boxplot theo BMI cho biến tiểu đường cũ",
+    x = "Diabetes_012",
+    y = "BMI"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Boxplot BMI cho biến Diabetes_binary
+ggplot(df, aes(x = factor(Diabetes_binary), y = BMI)) +
+  geom_boxplot(fill = "grey80") +
+  labs(
+    title = "Biểu đồ boxplot theo BMI cho biến tiểu đường mới",
+    x = "Diabetes_012",
+    y = "BMI"
+  ) +
+  theme_minimal()
+```
+
+**Nhận xét:** Ở cả biến gộp lẫn chưa gộp, ta đều thấy BMI ở nhóm không tiểu đường thấp hơn so với các nhóm còn lại.\
+
+## 2.5 Xem xét các biến nhị phân khác.
+
+```{r}
+binary_vars <- c("HighBP", "HighChol", "CholCheck", "Smoker", "Stroke",
+                 "HeartDiseaseorAttack", "PhysActivity", "Fruits", "Veggies",
+                 "HvyAlcoholConsump", "AnyHealthcare", "NoDocbcCost",
+                 "DiffWalk", "Sex")
+
+for (var in binary_vars) {
+  print(
+    df |>
+      group_by(Diabetes_binary, .data[[var]]) |>
+      summarise(n = n(), .groups = "drop") |>
+      group_by(Diabetes_binary) |>
+      mutate(percent = round(100 * n / sum(n), 2))
+  )
+}
+```
+
+**Nhận xét:** Sau khi khi kiểm tra số lượng biến nhị phân so với cùng biến `Diabetes_binary`, nhóm thu được một số nhận xét như sau:\
+\- Cả nam và nữ đều có nguy cơ mắc bệnh tiểu đường.\
+\- Người nguy cơ mắc tiểu đường ít hoạt động thể chất hơn so với người không mắc tiểu đường.\
+\- Tỷ lệ bệnh tim mạch cao hơn rõ rệt ở nhóm mắc tiểu đường so với nhóm nguy cơ.\
+\- Đột quỵ phổ biến hơn ở người mắc tiểu đường.\
+\- Hút thuốc không cho thấy mối liên hệ rõ ràng với tình trạng tiểu đường.\
+\- Người mắc tiểu đường có xu hướng được theo dõi y tế thường xuyên hơn.\
+\- Cholesterol cao phổ biến hơn đáng kể ở người mắc tiểu đường.\
+\- Cao huyết áp có mối liên hệ đáng kể với tình trạng tiểu đường.\
+
+## 2.6 Xem xét các biến định tính theo thứ bậc
+
+```{r}
+ordinal_vars <- c("Age", "Education", "Income", "GenHlth")
+
+for (var in ordinal_vars) {
+  df |>
+    filter(Diabetes_binary == 1) |>
+    count(.data[[var]]) |>
+    mutate(percent = round(100 * n / sum(n), 2)) |>
+    arrange(.data[[var]]) |>
+    print()
+}
+```
+
+**Nhận xét:** Kiểm tra số lượng giá trị nhóm nguy cơ tiểu đường của 4 biến định tính theo mức đó, nhóm thấy rằng:\
+\- Người mắc tiểu đường trong mẫu chủ yếu có trình độ học vấn cao đẳng/đại học và sau đại học. \
+\- Tiểu đường tập trung chủ yếu ở nhóm trung niên và cao tuổi.\
+\=> Điều này cho thấy nó phụ thuộc nhiều vào độ tuổi hơn là học vấn, vậy ta tiến hành bỏ biến Education.\
+\- Người mắc tiểu đường trong dữ liệu tập trung ở nhóm thu nhập cao (trên 35,000USD).\
+\- Người mắc tiểu đường chủ yếu tự đánh giá sức khỏe ở mức trung bình tốt.\
+
+## 2.7 Xem xét sự tương quan của tất cả các biến với biến mục tiêu
+```{r}
+df1 <- df |>
+  mutate(Diabetes_binary = as.numeric(as.character(Diabetes_binary)))
+
+cor_df <- df1 |>
+  pivot_longer(-c(Diabetes_binary, Diabetes_012),
+               names_to = "variable",
+               values_to = "value") |>
+  mutate(value = as.numeric(value)) |>   
+  group_by(variable) |>
+  summarise(correlation = cor(value, Diabetes_binary, use = "complete.obs"),
+            .groups = "drop") |>
+  arrange(desc(correlation))
+cor_df
+```
+
+```{r}
+ggplot(cor_df, aes(x = reorder(variable, correlation), y = correlation)) +
+  geom_col(alpha = 0.8) +
+  labs(title = "Diabetes_binary Correlation", x = NULL, y = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 9),
+        panel.grid.major.x = element_blank())
+```
+
+**Nhận xét:**\
+
+\- Những biến có mức độ tương quan cao hơn với biến mục tiêu `Diabetes_binary`: `GenHlth`, `HighBP` `BMI`, `DiffWalk`, `HighChol`, `Age`, `HeartDiseaseorAttack`, `PhysHlth`, `Income`, `Education`, `PhysActivity`, `Stroke`, `MentHlth`, `CholCheck`, `Smoker`, `Veggies`, `HvyAlcoholConsump` . \
+\- Những biến có mức độ tương quan rất yếu với biến mục tiêu  `Diabetes_binary`: `AnyHealthcare`, `NoDocbcCost`, `Fruits`, `Sex`.
+
+# III. Phương pháp Bootstrap và Empirical Likelihood (CI) cho BMI
+
+Trong phần này, nhóm tập trung trả lời hai câu hỏi chính:\
+1.Khoảng tin cậy 95% cho BMI trung bình của nhóm mắc tiểu đường là bao nhiêu?\
+2.BMI của người mắc tiểu đường có thực sự khác biệt so với người không mắc tiểu đường hay không?\
+
+Do phân phối BMI có dấu hiệu lệch phải và kích thước mẫu lớn, nhóm lựa chọn các phương pháp phi tham số như Bootstrap và Empirical Likelihood (EL) để hạn chế phụ thuộc vào giả định phân phối chuẩn.\
+
+## 3.1 Trường hợp 1: Phân tích theo biến gốc Diabetes_012 = 2 (so sánh nhóm tiểu đường và không tiểu đường)
+Trong trường hợp này, phân tích này tập trung vào biến mục tiêu gốc Diabetes_012, thực hiện so sánh đối chiếu giữa hai nhóm đối tượng:\
+\- `Diabetes_012 = 0`: Không mắc tiểu đường;\
+\- `Diabetes_012 = 2`: Mắc tiểu đường.\
+
+Nhóm tiền tiểu đường (`Diabetes_012 = 1`) bị loại bỏ nhằm tập trung vào sự khác biệt giữa hai trạng thái rõ ràng nhất: **không tiểu đường** và **tiểu đường**.
+
+### Chuẩn bị dữ liệu 
+```{r}
+# Trích xuất BMI theo biến gốc, chỉ giữ nhóm 0 và 2
+bmi_diab2 <- df |>
+  filter(Diabetes_012 == 2) |>
+  pull(BMI)
+
+bmi_nodiab0 <- df |>
+  filter(Diabetes_012 == 0) |>
+  pull(BMI)
+
+length(bmi_diab2)
+length(bmi_nodiab0)
+
+mean(bmi_diab2)
+mean(bmi_nodiab0)
+```
+
+### Bootstrap khoảng tin cậy 95% cho BMI trung bình  
+
+```{r}
+set.seed(123)
+B <- 5000
+
+boot_means_02 <- replicate(
+B,
+mean(sample(bmi_diab2, replace = TRUE))
+)
+
+mean_bmi_02 <- mean(bmi_diab2)
+boot_ci_02 <- quantile(boot_means_02, c(0.025, 0.975))
+
+mean_bmi_02
+boot_ci_02
+```
+
+```{r}
+#Biểu đồ phân phối bootstrap
+ggplot(data.frame(boot_means_02), aes(x = boot_means_02)) +
+  geom_histogram(bins = 40, fill = "grey80", color = "black") +
+  geom_vline(xintercept = mean_bmi_02, linetype = "dashed", linewidth = 1, color = "red") +
+  labs(
+    title = "Phân phối bootstrap của BMI trung bình (Diabetes_012 = 2)",
+    x = "BMI trung bình",
+    y = "Tần suất"
+  ) +
+  theme_minimal()
+```
+
+**Nhận xét:**\
+\- BMI trung bình của nhóm mắc tiểu đường (Diabetes_012 = 2) là **`r round(mean_bmi_02, 2)`**.  \
+\- Khoảng tin cậy bootstrap 95% cho BMI trung bình là  **[`r round(boot_ci_02[1], 2)`; `r round(boot_ci_02[2], 2)`]**.\
+\- Với mức tin cậy 95%, BMI trung bình của quần thể mà mẫu đại diện nằm trong khoảng từ 31.87 đến 32.02. Theo phân loại WHO, đa phần mẫu có BMI ở mức béo phì (BMI >= 30).\
+
+### Empirical Likelihood cho khoảng tin cậy 95% của BMI trung bình  
+
+```{r}
+#Hàm tính EL
+el_mean_ci <- function(x, conf = 0.95) {
+  x <- x[is.finite(x)]
+  stopifnot(length(x) >= 2)
+
+  mu_hat <- mean(x)
+  crit <- qchisq(conf, df = 1)
+
+  # Hàm mục tiêu: -2LLR(mu) - crit = 0
+  f <- function(mu) {
+    stat <- emplik::el.test(x = x, mu = mu)[["-2LLR"]]
+    as.numeric(stat) - crit
+  }
+
+  # Tìm khoảng chứa nghiệm
+  find_bracket <- function(center, step0, side = c("left", "right"), max_expand = 60) {
+    side <- match.arg(side)
+    step <- step0
+    for (k in 1:max_expand) {
+      a <- if (side == "left")  center - step else center
+      b <- if (side == "left")  center         else center + step
+      fa <- f(a); fb <- f(b)
+      if (is.finite(fa) && is.finite(fb) && fa * fb <= 0) return(c(a, b))
+      step <- step * 1.5
+    }
+    stop("Không tìm được khoảng chứa nghiệm cho EL CI")
+  }
+
+  step0 <- sd(x)
+  if (!is.finite(step0) || step0 == 0) step0 <- 1
+
+  br_left  <- find_bracket(mu_hat, step0, "left")
+  br_right <- find_bracket(mu_hat, step0, "right")
+
+  lower <- uniroot(f, interval = br_left)$root
+  upper <- uniroot(f, interval = br_right)$root
+
+  list(mean = mu_hat, lower = lower, upper = upper)
+}
+```
+
+```{r}
+#Tính EL theo biến gốc
+el_out_02 <- el_mean_ci(bmi_diab2)
+
+el_out_02
+```
+
+**Nhận xét:**  
+\- BMI trung bình của nhóm có tiểu đường (Diabetes_012 = 2) theo Empirical Likelihood là **`r round(el_out_02$mean,2)`**.   
+\- Khoảng tin cậy 95% theo Empirical Likelihood cho BMI trung bình là **[`r round(el_out_02$lower,2)`; `r round(el_out_02$upper,2)`]**.  \
+
+### So sánh khoảng tin cậy 95% (Bootstrap vs Empirical Likelihood)
+
+```{r}
+
+ci_compare <- tibble::tibble(
+  Method = c("Bootstrap", "Empirical Likelihood"),
+  Mean   = c(mean_bmi_02, el_out_02$mean),
+  Lower  = c(as.numeric(boot_ci_02[1]), el_out_02$lower),
+  Upper  = c(as.numeric(boot_ci_02[2]), el_out_02$upper),
+  Width  = Upper - Lower
+)
+
+ci_compare
+```
+
+**Nhận xét:** Khoảng tin cậy 95% thu được từ phương pháp Bootstrap và Empirical Likelihood trùng nhau về cả vị trí và độ rộng. Điều này cho thấy ước lượng BMI trung bình của nhóm có tiểu đường là ổn định và không nhạy cảm với phương pháp xây dựng khoảng tin cậy.\
+
+**Kết luận:** Với khoảng tin cậy 95% theo phương pháp Bootstrap và Empirical Likelihood đều cho ra cùng một kết quả là BMI trung bình của người mắc tiểu đường (Diabetes_012 = 2) nằm trong nhóm phân loại **Béo phì cấp độ 1** theo WHO. \
+
+### So sánh BMI giữa nhóm không tiểu đường và có tiểu đường  (Diabetes_012 = 0 và Diabetes_012 = 2)
+```{r}
+obs_diff_20 <- mean(bmi_diab2) - mean(bmi_nodiab0)
+obs_diff_20
+c(mean_diab = mean(bmi_diab2),mean_nodi = mean(bmi_nodiab0), diff = obs_diff_20)
+```
+
+```{r}
+#Bootstrap cho chênh lệch trung bình (2-0)
+set.seed(123)
+
+boot_diff_20 <- replicate(
+B,
+mean(sample(bmi_diab2, replace = TRUE)) -
+mean(sample(bmi_nodiab0, replace = TRUE))
+)
+
+ci_diff_20 <- quantile(boot_diff_20, c(0.025, 0.975))
+ci_diff_20
+```
+
+```{r}
+#Vẽ biểu đồ chênh lệch
+ggplot(data.frame(boot_diff_20), aes(x = boot_diff_20)) +
+geom_histogram(bins = 40, fill = "grey80", color = "black") +
+geom_vline(xintercept = obs_diff_20, linetype = "dashed", linewidth = 1) +
+geom_vline(xintercept = 0, color = "red", linewidth = 0.8) +
+labs(
+title = "Bootstrap chênh lệch BMI trung bình (Diabetes_012 = 2 - 0)",
+x = "Chênh lệch BMI trung bình",
+y = "Tần suất"
+) +
+theme_minimal()
+```
+
+**Nhận xét: **\
+\- Chênh lệch BMI trung bình giữa nhóm mắc tiểu đường và nhóm không tiểu đường là **`r round(obs_diff_20,2)`**.\
+\- Khoảng tin cậy bootstrap 95% cho chênh lệch này là **[`r round(ci_diff_20[1],2)`; `r round(ci_diff_20[2],2)`]`**.\
+\- Khoảng tin cậy không chứa 0, cho thấy BMI của người mắc tiểu đường cao hơn đáng kể so với người không mắc tiểu đường.
+
+## 3.2 Trường hợp 2: Gộp biến Diabetes_012 = 1 và Diabetes_012 = 2  thành biến nhị phân Diabetes_binary = 1 – người có tiểu đường
+Trong trường hợp này, câu hỏi nghiên cứu được xem xét cho nhóm có tiểu đường (bao gồm tiền tiểu đường và tiểu đường), được mã hóa bởi biến Diabetes_binary = 1, và so sánh với nhóm không tiểu đường.\
+
+### Chuẩn bị dữ liệu
+
+```{r}
+# Trích xuất BMI theo biến đã gộp
+bmi_diabetes <- df |>
+  filter(Diabetes_binary == 1) |>
+  pull(BMI)
+
+bmi_nodiabetes <- df |>
+  filter(Diabetes_binary == 0) |>
+  pull(BMI)
+
+length(bmi_diabetes)
+length(bmi_nodiabetes)
+
+mean(bmi_diabetes)
+mean(bmi_nodiabetes)
+```
+
+### Bootstrap khoảng tin cậy 95% cho BMI trung bình  
+
+Nhóm sử dụng phương pháp bootstrap phi tham số để ước lượng khoảng tin cậy 95% cho BMI trung bình của nhóm có tiểu đường.\
+Phương pháp này phù hợp trong bối cảnh phân phối BMI có dấu hiệu lệch và không yêu cầu giả định phân phối chuẩn.
+
+```{r}
+set.seed(123)
+B <- 5000
+
+# Bootstrap cho BMI trung bình
+boot_means <- replicate(
+  B,
+  mean(sample(bmi_diabetes, replace = TRUE))
+)
+
+# Trung bình quan sát
+mean_bmi <- mean(bmi_diabetes)
+
+# Khoảng tin cậy bootstrap 95%
+boot_ci <- quantile(boot_means, c(0.025, 0.975))
+
+mean_bmi
+boot_ci
+```
+
+```{r}
+#Biểu đồ phân phối bootstrap của BMI trung bình
+ggplot(data.frame(boot_means), aes(x = boot_means)) +
+  geom_histogram(bins = 40, fill = "grey80", color = "black") +
+  geom_vline(xintercept = mean_bmi, linetype = "dashed", linewidth = 1, color = "red") +
+  labs(
+    title = "Phân phối bootstrap của BMI trung bình (Diabetes_binary = 1)",
+    x = "BMI trung bình",
+    y = "Tần suất"
+  ) +
+  theme_minimal()
+
+```
+
+**Nhận xét:**  
+\-Phân phối có dạng gần đối xứng và xấp xỉ chuẩn, tập trung mạnh quanh giá trị trung bình quan sát (đường đứt nét), cho thấy ước lượng BMI trung bình là ổn định.\
+\-Độ phân tán của phân phối bootstrap tương đối nhỏ, phản ánh độ bất định thấp của ước lượng trung bình BMI nhờ kích thước mẫu lớn.\
+\-Khoảng tin cậy 95% được xây dựng dựa trên phân phối này phản ánh mức độ bất định của ước lượng.
+
+### Empirical Likelihood cho khoảng tin cậy 95% của BMI trung bình  
+
+```{r}
+#Tính EL cho trường hợp gộp biến
+el_out <- el_mean_ci(bmi_diabetes)
+
+el_out
+```
+
+**Nhận xét:**  
+\-BMI trung bình của nhóm có tiểu đường (Diabetes_binary = 1) theo Empirical Likelihood là **`r round(el_out$mean,2)`**.   \
+\-Khoảng tin cậy 95% theo Empirical Likelihood cho BMI trung bình là **[`r round(el_out$lower,2)`; `r round(el_out$upper,2)`]**.  \
+
+**Kết luận:** Với độ tin cậy 95%, BMI trung bình của quần thể người bị tiểu đường nằm trong khoảng trên.  
+Kết quả EL phù hợp với cách ước lượng phi tham số và không phụ thuộc giả định phân phối chuẩn của BMI.\
+
+### So sánh khoảng tin cậy 95% (Bootstrap vs Empirical Likelihood)
+
+```{r}
+
+ci_compare <- tibble::tibble(
+  Method = c("Bootstrap (Percentile)", "Empirical Likelihood"),
+  Mean   = c(mean_bmi, el_out$mean),
+  Lower  = c(as.numeric(boot_ci[1]), el_out$lower),
+  Upper  = c(as.numeric(boot_ci[2]), el_out$upper),
+  Width  = Upper - Lower
+)
+
+ci_compare
+```
+
+**Nhận xét:** Khoảng tin cậy 95% thu được từ phương pháp Bootstrap và Empirical Likelihood gần như trùng nhau về cả vị trí và độ rộng.  Điều này cho thấy ước lượng BMI trung bình của nhóm có tiểu đường là ổn định và không nhạy cảm với phương pháp xây dựng khoảng tin cậy.\
+
+## 3.3 So sánh BMI giữa nhóm không tiểu đường và có tiểu đường  (Diabetes_binary = 0 và Diabetes_binary = 1)
+
+```{r}
+mean_diab <- mean(bmi_diabetes)
+mean_nodi <- mean(bmi_nodiabetes)
+
+obs_diff <- mean_diab - mean_nodi
+c(mean_diab = mean_diab, mean_nodi = mean_nodi, diff = obs_diff)
+```
+
+```{r}
+# Bootstrap cho chênh lệch trung bình (1 - 0)
+B <- 5000
+
+boot_diff <- replicate(
+  B,
+  mean(sample(bmi_diabetes, replace = TRUE)) -
+    mean(sample(bmi_nodiabetes, replace = TRUE))
+)
+
+ci_diff <- quantile(boot_diff, c(0.025, 0.975))
+ci_diff
+```
+
+```{r}
+#Vẽ biểu đồ để thấy rõ sự chênh lệch
+ggplot(data.frame(boot_diff), aes(x = boot_diff)) +
+geom_histogram(bins = 40, fill = "grey80", color = "black") +
+geom_vline(xintercept = obs_diff, linetype = "dashed", linewidth = 1) +
+geom_vline(xintercept = 0, color = "red", linewidth = 0.8) +
+labs(
+title = "Bootstrap chênh lệch BMI trung bình (Diabetes_binary = 1 − 0)",
+x = "Chênh lệch BMI trung bình",
+y = "Tần suất"
+) +
+theme_minimal()
+```
+
+**Nhận xét:**\
+\- Phân phối tập trung quanh giá trị chênh lệch dương và nằm hoàn toàn xa mốc 0,
+cho thấy BMI trung bình của nhóm có tiểu đường cao hơn rõ rệt so với nhóm không tiểu đường.\
+\- Khoảng tin cậy bootstrap 95% không chứa giá trị 0, cung cấp bằng chứng
+về sự khác biệt có ý nghĩa thống kê giữa hai nhóm.
+
+### So sánh sự khác biệt giữ giữ biến ban đầu và gộp biến
+```{r}
+compare_ci <- data.frame(
+  Case  = factor(
+    c("Không gộp (Diabetes_012 = 2)",
+      "Gộp biến (Diabetes_binary = 1)"),
+    levels = c("Không gộp (Diabetes_012 = 2)",
+               "Gộp biến (Diabetes_binary = 1)")
+  ),
+  Mean  = c(mean_bmi_02, mean_bmi),
+  Lower = c(as.numeric(boot_ci_02[1]), as.numeric(boot_ci[1])),
+  Upper = c(as.numeric(boot_ci_02[2]), as.numeric(boot_ci[2]))
+)
+
+compare_ci
+
+#Vẽ biểu đồ so sánh
+ggplot(compare_ci, aes(y = Case, x = Mean)) +
+  geom_point(size = 3) +
+  geom_errorbarh(
+    aes(xmin = Lower, xmax = Upper),
+    height = 0.2,
+    linewidth = 1
+  ) +
+  labs(
+    title = "So sánh khoảng tin cậy 95% của BMI trung bình",
+    x = "BMI trung bình (CI 95%)",
+    y = ""
+  ) +
+  theme_minimal()
+```
+
+**Nhận xét: **Biểu đồ cho thấy BMI trung bình của nhóm tiểu đường khi **không gộp biến** (Diabetes_012 = 2) cao hơn so với trường hợp **gộp biến** (Diabetes_binary = 1).\
+
+**Kết luận: **Việc gộp nhóm tiền tiểu đường vào nhóm bệnh làm giảm giá trị BMI trung bình,
+do đó chênh lệch so với nhóm không tiểu đường nhỏ hơn.
+Tuy nhiên, trong cả hai trường hợp, khoảng tin cậy 95% đều hẹp,
+cho thấy kết luận về mối liên hệ giữa BMI cao và tiểu đường là ổn định.
+
+## 3.4 Trả lời câu hỏi nghiên cứu
+
+### Câu hỏi 1: BMI trung bình của nhóm có tiểu đường nằm trong khoảng nào với độ tin cậy 95%?
+
+**Trường hợp 1: Sử dụng biến gốc**\
+\- Khi chỉ xét nhóm tiểu đường thực sự (`Diabetes_012 = 2`), kết quả bootstrap và empirical likelihood cho thấy BMI trung bình của nhóm này nằm trong một khoảng tin cậy hẹp với độ tin cậy 95%.\
+\- Khoảng tin cậy thu được phản ánh rằng BMI trung bình của người mắc tiểu đường ở mức cao, tương ứng với nhóm **béo phì cấp độ 1**, và ước lượng này là ổn định ngay cả khi không giả định phân phối chuẩn của dữ liệu BMI.\
+
+**Trường hợp 2: Gộp biến**\
+Khi gộp nhóm tiền tiểu đường và tiểu đường thành nhóm có tiểu đường,
+BMI trung bình của nhóm này có xu hướng **thấp hơn nhẹ** so với trường hợp không gộp biến. Tuy nhiên, khoảng tin cậy 95% vẫn nằm trong vùng BMI cao, cho thấy ngay cả khi mở rộng định nghĩa nhóm bệnh,
+BMI trung bình của nhóm có tiểu đường vẫn ở mức phân loại **Béo phì cấp độ 1** theo WHO.\
+
+**Kết luận chung: **\
+\- Kết quả phân tích cho thấy, **bất kể cách định nghĩa biến tiểu đường** 
+(sử dụng biến gốc `Diabetes_012` hay biến gộp `Diabetes_binary`),
+BMI trung bình của nhóm mắc tiểu đường đều được ước lượng
+trong một khoảng tin cậy 95% hẹp và ổn định.\
+\- Trong cả hai trường hợp, BMI trung bình của người mắc tiểu đường
+nằm ở mức cao, thuộc nhóm **thừa cân – béo phì cấp độ 1** theo phân loại của WHO.
+Điều này cho thấy kết luận về mức BMI trung bình của người mắc tiểu đường
+**không nhạy cảm với cách mã hóa biến tiểu đường**.
+
+### Câu hỏi 2: BMI của người có tiểu đường có thực sự khác biệt so với người không mắc tiểu đường hay không?
+
+**Trường hợp 1: Sử dụng biến gốc**\
+So sánh bootstrap cho chênh lệch BMI trung bình giữa hai nhóm
+không tiểu đường (`Diabetes_012 = 0`) và tiểu đường (`Diabetes_012 = 2`)
+cho thấy khoảng tin cậy 95% của chênh lệch **không chứa giá trị 0**.\
+\=> Điều này cung cấp bằng chứng thống kê rõ ràng rằng
+**BMI của người mắc tiểu đường cao hơn đáng kể so với người không mắc tiểu đường**.
+
+**Trường hợp 2: Gộp biến**\
+Khi gộp biến, so sánh giữa nhóm có tiểu đường (`Diabetes_binary = 1`) và nhóm không tiểu đường (`Diabetes_binary = 0`) cho ra khoảng tin cậy 95% cho chênh lệch BMI tiếp tục không chứa giá trị 0.\
+\=> Điều này cũng cho ra kết quả nhất quán là: BMI trung bình của nhóm có tiểu đường **cao hơn rõ rệt** so với nhóm không tiểu đường.
+
+**Kết luận chung:**\
+\- Phân tích so sánh BMI giữa nhóm mắc tiểu đường và nhóm không mắc tiểu đường cho thấy **sự khác biệt rõ rệt và nhất quán** trong cả hai cách định nghĩa biến tiểu đường (gộp biến và không gộp biến).\
+\- Trong mọi trường hợp, khoảng tin cậy bootstrap 95% cho chênh lệch BMI trung bình giữa hai nhóm đều **không chứa giá trị 0**, cho thấy BMI của người mắc tiểu đường **cao hơn đáng kể** so với người không mắc tiểu đường.\
+\=> Do đó, ta có thể kết luận rằng sự khác biệt BMI giữa hai nhóm
+**không nhạy cảm với cách mã hóa biến tiểu đường**.
+
+# IV. Kiểm định giả thuyết thống kê
+
+## 4.1 Kết luận cuối về sự khác biệt BMI của người mắc tiểu đường và không
+Mặc dù các phân tích trước đó đã cung cấp thông tin về mức độ chênh lệch BMI
+giữa nhóm có và không mắc tiểu đường thông qua các phương pháp ước lượng
+và khoảng tin cậy, việc tiến hành kiểm định giả thuyết thống kê vẫn cần thiết
+để đưa ra kết luận dưới giả thuyết không.\
+
+Permutation test được sử dụng để kiểm định sự khác biệt trung bình
+giữa hai nhóm độc lập (có và không tiểu đường) mà không yêu cầu giả định phân phối chuẩn, cũng như
+tránh trùng lặp phương pháp và đảm bảo phân phối kiểm định được xây dựng đúng dưới giả thuyết không.
+
+Phát biểu giả thuyết thống kê:
+$$
+\begin{aligned}
+H_0 &: \mu_{\text{BMI, diab}} = \mu_{\text{BMI, nodiab}}  \\
+H_1 &: \mu_{\text{BMI, diab}} \neq \mu_{\text{BMI, nodiab}}  
+\end{aligned}
+$$
+
+```{r}
+# Thiết lập hàm cho Permutation test 
+perm_fun <- function(.data, x, g, sign_grp = c(1, -1), R = 1000) {
+  data_ord <- .data |>
+    arrange(desc({{g}}))
+  info_x <- data_ord |>
+    group_by({{g}}) |> 
+    summarise(n = n(), mean_x = mean({{x}}))
+  n <- sum(info_x$n)
+  nA <- info_x$n[1]
+  score <- data_ord |> pull({{x}})
+  mean_diff <- sum(sign_grp * info_x$mean_x)
+  mean_diff_perm <- sapply(1:R, function(i){
+    idx_a <- sample(x = 1:n, size = nA, replace = FALSE)
+    idx_b <- setdiff(x = 1:n, y = idx_a)
+    res <- sum(sign_grp * c(mean(score[idx_a]), mean(score[idx_b])))
+})
+p_val <- mean(abs(mean_diff_perm) >= abs(mean_diff))
+return(list(mean_diff = mean_diff,
+            mean_diff_perm = tibble(out_perm = mean_diff_perm),
+            p_val = p_val))
+}
+```
+
+```{r}
+bmi_perm <- perm_fun(.data = df,
+                     x = BMI,
+                     g = Diabetes_binary,
+                     sign_grp = c(1, -1),
+                     R = 1000)
+bmi_perm$p_val
+```
+**Nhận xét**: p-value < 0.05, đủ cơ sở để bác bỏ H0. Vậy thật sự có khác biệt về chỉ số BMI giữa hai nhóm, và người mắc bệnh có xu hướng sở hữu chỉ số BMI cao hơn.
+
+```{r}
+ggplot(bmi_perm$mean_diff_perm, aes(x = out_perm)) +
+  geom_histogram(bins = 40, fill = "grey80", color = "black") +
+  geom_vline(xintercept = bmi_perm$mean_diff,
+             linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = 0,
+             color = "red", linewidth = 0.8) +
+  labs(
+    title = "Permutation distribution of mean BMI difference (A − B)",
+    x = "Mean difference",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+```
+
+## 4.2 Những kiểm định về sự liên hệ của biến đối với biến mục tiêu
+
+Dựa trên các phân tích mô tả và EDA ở các phần trước, ta mới chỉ quan sát được những khác biệt mang tính trực quan giữa các nhóm đối tượng. Tuy nhiên, từ các quan sát này chưa thể khẳng định rằng biến mục tiêu `Diabetes_binary` có mối liên hệ thực sự với các biến giải thích trong tổng thể. \
+
+Tiến hành các kiểm định giả thuyết thống kê nhằm đánh giá liệu các biến hiện diện có mối liên hệ có ý nghĩa thống kê với biến mục tiêu hay không.
+
+### Phân biệt các biến hiện có\
+\- Biến mục tiêu: `Diabetes_binary`.\
+\- Biến phân loại nhị phân: `Sex`, `HighBP`, `HighChol`, `CholCheck`, `Smoker`, `PhysActivity`, `DiffWalk`, `Stroke`, `HeartDiseaseorAttack`, `Fruits`, `Veggies`, `AnyHealthcare`, `NoDocbcCost`, `HvyAlcoholConsump`.\
+\- Biến định lượng: `BMI`, `MentHlth`, `PhysHlth`.\
+\- Biến thứ bậc: `Age`, `GenHlth`, `Income`, `Education`.\
+
+### Chiến lược kiểm định\
+Tùy theo bản chất từng loại biến, các kiểm định khác nhau sẽ được sử dụng để đánh giá mối liên hệ với biến mục tiêu Diabetes_binary:\
+\- Đối với biến phân loại nhị phân, sử dụng kiểm định Chi-square (hoặc Fisher’s Exact test khi cần) để kiểm tra tính độc lập giữa hai biến.\
+\- Đối với biến định lượng, sử dụng kiểm định hoán vị (permutation test) để so sánh giá trị trung bình giữa hai nhóm có và không mắc tiểu đường.\
+\- Đối với biến thứ bậc, sử dụng kiểm định hoán vị kiểm định dựa trên thứ hạng để đánh giá xu hướng liên hệ.\
+
+Mỗi kiểm định đều được thực hiện với mức ý nghĩa \alpha = 0.05 từ đó đưa ra kết luận về việc có hay không tồn tại mối liên hệ có ý nghĩa thống kê giữa biến đang xét và biến mục tiêu.
+
+### 4.2.1 Kiểm định các biến phân loại nhị phân
+
+Phát biểu giả thuyết thống kê chung:\
+
+$$
+\begin{aligned}
+H_0 &: \text{Biến nhị phân } X \text{ độc lập với biến mục tiêu } \texttt{Diabetes_binary}. \\
+H_1 &: \text{Biến nhị phân } X \text{ có mối liên hệ với biến mục tiêu } \texttt{Diabetes_binary}.
+\end{aligned}
+$$
+
+```{r}
+binary_vars_testing <- c("HighBP", "HighChol", "CholCheck", "Smoker", "Stroke",
+                         "HeartDiseaseorAttack", "PhysActivity", "Fruits", "Veggies",
+                         "HvyAlcoholConsump", "AnyHealthcare", "NoDocbcCost",
+                         "DiffWalk", "Sex")
+```
+
+```{r}
+chisq_test_fun <- function(data, target, var) {
+  tab  <- table(data[[target]], data[[var]])
+  test <- chisq.test(tab)
+  
+  list(contingency_table = tab,
+       chi_square = unname(test$statistic),
+       df = unname(test$parameter),
+       p_value = test$p.value)
+}
+```
+
+```{r}
+chisq_results <- lapply(binary_vars_testing, function(var) {
+  res <- chisq_test_fun(df, "Diabetes_binary", var)
+  
+  data.frame(Variable = var,
+             Chi_square = res$chi_square,
+             df = res$df,
+             p_value = res$p_value)
+})
+
+chisq_results <- do.call(rbind, chisq_results)
+
+chisq_results <- chisq_results |>
+  mutate(Conclusion = ifelse(p_value < 0.05, "Bác bỏ H0",
+                            "Không đủ cơ sở để bác bỏ H0"))
+
+chisq_results
+```
+
+### 4.2.2 Kiểm định các biến định lượng
+Biến `BMI` đã được kiểm định, nên trong mục này chỉ cần kiểm định 2 biến định lượng còn lại\
+
+Phát biểu giả thuyết thống kê chung:\
+
+$$
+\begin{aligned}
+H_0 &: \text{Phân phối của biến } X \text{ là như nhau giữa hai nhóm } \texttt{Diabetes_binary}. \\
+H_1 &: \text{Phân phối của biến } X \text{ khác nhau giữa hai nhóm } \texttt{Diabetes_binary}.
+\end{aligned}
+$$
+
+```{r}
+quant_vars_testing <- c("MentHlth", "PhysHlth")
+
+perm_list <- lapply(quant_vars_testing, function(var) {
+  perm_fun(.data = df,
+           x = !!sym(var),
+           g = Diabetes_binary,
+           R = 1000)
+})
+
+names(perm_list) <- quant_vars_testing
+```
+
+```{r}
+perm_results <- lapply(quant_vars_testing, function(var) {
+  res <- perm_fun(.data = df,
+                  x = !!sym(var),
+                  g = Diabetes_binary,
+                  R = 1000)
+  
+  data.frame(Variable = var,
+             Mean_Diff = res$mean_diff,
+             p_value = res$p_val)
+})
+
+perm_results <- do.call(rbind, perm_results)
+
+perm_results <- perm_results |>
+  mutate(Conclusion = ifelse(p_value < 0.05,"Bác bỏ H0",
+                             "Không đủ cơ sở để bác bỏ H0"))
+perm_results
+```
+
+```{r}
+plot_perm_hist <- function(perm_res, var_name) {
+  ggplot(perm_res$mean_diff_perm, aes(x = out_perm)) +
+    geom_histogram(bins = 40, fill = "grey80", color = "black") +
+    geom_vline(xintercept = perm_res$mean_diff,
+               linetype = "dashed",
+               linewidth = 1) +
+    labs(title = paste("Permutation distribution for", var_name),
+         x = "Mean difference",
+         y = "Frequency") +
+    theme_minimal()
+}
+```
+
+```{r}
+plot_perm_hist(perm_list$MentHlth, "MentHlth")
+plot_perm_hist(perm_list$PhysHlth, "PhysHlth")
+```
+
+### 4.2.3 Kiểm định các biến thứ bậc
+
+$$
+\begin{aligned}
+H_0 &: \text{Phân phối (về vị trí trung tâm) của } X \text{ là như nhau giữa hai nhóm } Diabetes\_binary. \\
+H_1 &: \text{Phân phối (về vị trí trung tâm) của } X \text{ khác nhau giữa hai nhóm } Diabetes\_binary.
+\end{aligned}
+$$
+
+```{r}
+ordinal_vars_testing <- c("Age", "GenHlth", "Education", "Income")
+ordinal_perm_list <- lapply(ordinal_vars_testing, function(var) {
+  perm_fun(
+    .data = df,
+    x     = !!sym(var),
+    g     = Diabetes_binary,
+    R     = 1000
+  )
+})
+
+names(ordinal_perm_list) <- ordinal_vars_testing
+```
+
+```{r}
+ordinal_perm_results <- lapply(ordinal_vars_testing, function(var) {
+  res <- ordinal_perm_list[[var]]
+  
+  data.frame(
+    Variable  = var,
+    Mean_Diff = res$mean_diff,
+    p_value   = res$p_val
+  )
+})
+
+ordinal_perm_results <- do.call(rbind, ordinal_perm_results)  
+  
+ordinal_perm_results <- ordinal_perm_results |>
+  mutate(
+    Conclusion = ifelse(
+      p_value < 0.05,
+      "Bác bỏ H0",
+      "Không đủ cơ sở để bác bỏ H0"
+    )
+  )
+
+ordinal_perm_results
+
+```
+                                     
+```{r}
+plot_perm_hist(ordinal_perm_list$GenHlth, "GenHlth")
+plot_perm_hist(ordinal_perm_list$Age, "Age")
+plot_perm_hist(ordinal_perm_list$Education, "Education")
+plot_perm_hist(ordinal_perm_list$Income, "Income")
+```
+
+### 4.2.4 Kết luận
+Nhận thấy do cỡ mẫu lớn, hầu hết các kiểm định giả thuyết đều dẫn đến việc bác bỏ H0. Tuy nhiên điều này chỉ mới có ý nghĩa rằng có sự tồn tại khác biệt thống kê giữa các nhóm, không có hàm ý là tất cả các biến này có mức đóng góp lớn cho biến mục tiêu. Do đó, các kết quả kiểm định được sử dụng như bước tham khảo ban đầu, và phân tích tiếp theo tập trung vào kích thước hiệu ứng, mô hình hồi quy và khả năng dự đoán.\
+
+Ngoài ra, ta có một số kết luận ngoài lề:\
+\- Tiểu đường là một bệnh lý phức tạp, trải rộng trên nhiều khía cạnh, từ chỉ số sức khỏe, đến hành vi, chức năng thể chất và điều kiện xã hội.\
+\- Người tiểu đường có xu hướng đánh giá sức khỏe tổng quan của bản thân, sức khỏe tinh thần (~1.5 ngày) và thể chất kém hơn (~4.2 ngày), cũng như BMI lớn hơn (~4), gợi ý rằng có thể biến (BMI, GenHealth) là ứng viên tốt cho mô hình.\
+\- Nhóm người tuổi cao dễ mắc tiểu đường.\
+\- Nhóm không tiểu đường có trình độ học vấn cao hơn.\
+\- Tiểu đường cũng có xu hướng tập trung nhiều hơn ở các nhóm thu nhập thấp.\
+                                       
+# V. Chọn biến cho mô hình
+Qua phần trước, ta đã có thể kiểm định rằng tất cả 21 biến đều có sự khác biệt hoàn toàn giữa hai nhóm, nhưng ta lại không chắc chắn về mức độ đóng góp cho biến mục tiêu \=> do đó cần đưa ra sử dụng những chuẩn hoặc phương pháp để đưa ra tập biến đóng góp lớn nhất vào biến mục tiêu.\
+
+## 5.1 Chọn ra những biến liên quan mạnh nhất với biến mục tiêu với ngưỡng đặt ra từ Tương Quan Pearson.\
+
+```{r}
+cor_selected <- cor_df |>
+  mutate(abs_correlation = abs(correlation)) |>
+  filter(abs_correlation > 0.05) |>
+  arrange(desc(abs_correlation))
+
+cor_selected
+```
+**Nhận xét:** Với việc chọn ngưỡng 0.05, ta tránh được việc bỏ sót nhiều yếu tố quan trọng, đồng thời cũng tránh được việc giữ lại quá nhiều biến nhiễu. Từ đó ta có được 17 biến có sự đóng góp lớn vào biến mục tiêu cuối cùng.\
+
+## 5.2 Chọn ra những biến phân loại nhị phân đóng góp nhiều nhất từ Chi-bình phương. \
+
+Lưu ý: Ở đây sử dụng Chi-bình phương không phải với mục đích kiểm định sự độc lập giữa các biến với biến mục tiêu; mà dùng để xếp hạng sự tương quan của các biến phân loại nhị phân với biến mục tiêu, từ đó lọc ra những biến đóng góp lớn cho mô hình.\
+Ở đây, nhóm chọn top 10 biến định tính đóng góp phần lớn vào biến mục tiêu.\
+
+```{r}
+top10_categorical <- chisq_results |>
+  arrange(desc(Chi_square)) |>
+  slice(1:10)
+
+top10_categorical
+```
+
+## 5.3 Sử dụng Information Value (IV) và Weight of Evidence (WOE)\
+
+### Weight of Evidence (WOE)\
+
+Phép biến đổi cho các biến giải thích theo từng nhóm (bins), dựa trên tỉ lệ quan sát thuộc hai lớp của biến mục tiêu (ở đây là mắc và không mắc tiểu đường): \
+$$
+\mathrm{WOE}_i = \ln\left(\frac{\%\text{Mắc tiểu đường}_i}{\%\text{Không mắc tiểu đường}_i}\right)
+$$
+
+Cách hoạt động của WOE: trong nhóm giá trị của biến X, tỉ lệ "mắc bệnh" cao hơn so với "không mắc", thì nhóm đó sẽ mang nhiều "bằng chứng" ủng hộ cho "mắc bệnh", tức WOE sẽ dương và ngược lại.\
+
+### Information Value (IV)\
+
+Thước đo tổng hợp mức độ phân tách hai lớp của biến mục tiêu mà một biến có thể mang lại, được tính bằng cách: \
+$$
+\mathrm{IV} = \sum_i \left(\%\text{Mắc tiểu đường}_i - \%\text{Không mắc tiểu đường}_i\right) \times \mathrm{WOE}_i
+$$
+
+Giá trị IV có thể được hiểu như sau:\
+
+\- IV < 0.02: biến hầu như không có giá trị dự báo. \
+\- 0.02 ≤ IV < 0.10: khả năng dự báo yếu.\
+\- 0.10 ≤ IV < 0.30: khả năng dự báo trung bình. \
+\- 0.30 ≤ IV < 0.50: khả năng dự báo mạnh.\
+\- IV ≥ 0.50: khả năng dự báo quá mạnh (có thể tiềm ẩn rủi ro overfitting hoặc rò rỉ thông tin).
+
+
+```{r}
+iv_woe <- function(data, target, bins = 10, show_woe = FALSE) {
+  if (!target %in% names(data)) stop("target không tồn tại trong data")
+  # target phải là 0/1 (numeric hoặc integer); nếu factor/character thì convert về 0/1
+  y <- data[[target]]
+  if (is.factor(y) || is.character(y)) {
+    y <- as.integer(as.factor(y)) - 1
+  }
+  if (!all(y %in% c(0, 1, NA))) {
+    stop("target phải là nhị phân 0/1 (hoặc NA).")
+  }
+
+  vars <- setdiff(names(data), target)
+
+  newDF_list <- list()
+  woeDF_list <- list()
+
+  qcut_drop <- function(x, bins) {
+    qs <- unique(stats::quantile(x, probs = seq(0, 1, length.out = bins + 1), na.rm = TRUE, type = 7))
+    if (length(qs) < 3) {
+      return(as.character(x))
+    }
+    as.character(cut(x, breaks = qs, include.lowest = TRUE, right = TRUE))
+  }
+
+  for (ivars in vars) {
+    x <- data[[ivars]]
+    is_num <- is.numeric(x) || is.integer(x)
+    n_unique <- length(unique(x[!is.na(x)]))
+
+    if (is_num && (n_unique > 10)) {
+      x_binned <- qcut_drop(x, bins)
+      d0 <- data.frame(x = x_binned, y = y, stringsAsFactors = FALSE)
+    } else {
+      d0 <- data.frame(x = x, y = y, stringsAsFactors = FALSE)
+      d0$x <- as.character(d0$x)
+    }
+    
+    d0$x <- addNA(d0$x)
+
+    N_tbl <- as.data.frame(table(d0$x), stringsAsFactors = FALSE)
+    colnames(N_tbl) <- c("Cutoff", "N")
+
+    events_vec <- tapply(d0$y, d0$x, sum, na.rm = TRUE)
+    d <- merge(N_tbl, data.frame(Cutoff = names(events_vec), Events = as.numeric(events_vec)),
+               by = "Cutoff", all.x = TRUE)
+
+    d$Events[is.na(d$Events)] <- 0
+    d$`% of Events` <- pmax(d$Events, 0.5) / sum(d$Events, na.rm = TRUE)
+
+    d$`Non-Events` <- d$N - d$Events
+    d$`% of Non-Events` <- pmax(d$`Non-Events`, 0.5) / sum(d$`Non-Events`, na.rm = TRUE)
+
+    d$WoE <- log(d$`% of Non-Events` / d$`% of Events`)
+    d$IV  <- d$WoE * (d$`% of Non-Events` - d$`% of Events`)
+
+    d$Variable <- ivars
+    d <- d[, c("Variable", "Cutoff", "N", "Events", "% of Events",
+               "Non-Events", "% of Non-Events", "WoE", "IV")]
+
+    iv_sum <- sum(d$IV, na.rm = TRUE)
+    cat("Information value of", ivars, "is", round(iv_sum, 6), "\n")
+
+    newDF_list[[ivars]] <- data.frame(Variable = ivars, IV = iv_sum, stringsAsFactors = FALSE)
+    woeDF_list[[ivars]] <- d
+
+    if (isTRUE(show_woe)) print(d)
+  }
+
+  newDF <- do.call(rbind, newDF_list)
+  woeDF <- do.call(rbind, woeDF_list)
+
+  rownames(newDF) <- NULL
+  rownames(woeDF) <- NULL
+
+  return(list(iv_summary = newDF, woe_table = woeDF))
+}
+```
+
+
+```{r}
+df2 <- df |> 
+  dplyr::select(-Diabetes_012)
+
+res <- iv_woe(df2, target = "Diabetes_binary", bins = 10, show_woe = FALSE)
+
+iv_rank <- res$iv_summary[order(res$iv_summary$IV, decreasing = TRUE), ]
+
+woe_detail <- res$woe_table
+
+iv_selected <- iv_rank[iv_rank$IV > 0.1, ]
+iv_selected
+```
+
+**Nhận xét:** Với ngưỡng IV > 0.1, tương ứng với mức khả năng dự báo từ trung bình trở lên theo các quy ước thường dùng, đã lựa chọn được 11 biến giải thích có mức độ đóng góp đáng kể trong việc phân biệt tình trạng mắc và không mắc tiểu đường. \
+
+## 5.4 Kết luận những biến sử dụng trong mô hình
+
+Dựa trên kết quả phân tích thăm dò dữ liệu (EDA) và các phương pháp sàng lọc biến theo nhiều góc độ khác nhau, lựa chọn được 11 biến giải thích để sử dụng trong các mô hình dự báo tình trạng tiểu đường, bao gồm:\
+\- `GenHlth`\
+\- `HighBP`\
+\- `BMI` \
+\- `Age` \
+\- `HighChol`\
+\- `DiffWalk`\
+\- `Income`\
+\- `PhysHlth`\
+\- `HeartDiseaseorAttack`\
+\- `Education`\
+\- `PhysActivity`\
+
+Lưu ý: Cần nhấn mạnh rằng các phương pháp lựa chọn biến được sử dụng trong bài làm, bao gồm phân tích tương quan, kiểm định Chi-square và IV/WOE, chủ yếu nhằm mục đích sàng lọc biến theo hướng dự báo, hỗ trợ cho việc xây dựng mô hình. Do đó, các biến được lựa chọn không nên được diễn giải như bằng chứng cho mối quan hệ nhân quả hay tác động độc lập đến nguy cơ mắc tiểu đường.
+
+# VI. Xây dựng mô hình 
+
+## 6.1 Chuẩn bị dữ liệu
+
+### 6.1.1 Dữ liệu gốc
+
+```{r}
+df_model <- df |>
+  mutate(
+        Diabetes_012 =  as.factor(Diabetes_012),
+        Diabetes_binary = as.factor(Diabetes_binary),
+        
+        across(
+          c(
+            HighBP, HighChol, CholCheck, Smoker, Stroke,
+            HeartDiseaseorAttack, PhysActivity, Fruits, Veggies,
+            HvyAlcoholConsump, AnyHealthcare, NoDocbcCost,
+            DiffWalk, Sex
+            ),
+          as.factor
+          ),
+        
+        GenHlth   = ordered(GenHlth),
+        Age       = ordered(Age),
+        Education = ordered(Education),
+        Income    = ordered(Income)
+        )
+str(df_model)
+```
+
+
+```{r}
+# Chia dữ liệu train - test
+
+set.seed(1)
+
+train_idx0 <- sample(seq_len(nrow(df_model)), size = 0.8 * nrow(df_model))
+
+train_0 <- df_model[train_idx0, ]
+test  <- df_model[-train_idx0, ]
+```
+
+### 6.1.2 Dữ liệu cân bằng 
+
+Đối với dữ liệu mất cân bằng,ta xử lý bằng cách data generation với phương pháp SMOTE (Synthetic Minority Oversampling Technique)
+
+#### Xử lý mất cân bằng cho biến Diabetes_binary
+
+```{r}
+set.seed(123)
+
+train_1  <- smotenc(
+  df = train_0,
+  var = "Diabetes_binary",
+  k = 5,
+  over_ratio = 1
+)
+
+glimpse(train_1)
+
+```
+
+**Kiểm tra số nhóm và số lượng mỗi nhóm**
+
+```{r}
+with(train_1, table(Diabetes_binary))
+```
+
+**Thống kê mô tả cho dữ liệu**
+```{r}
+summary(train_1)
+```
+
+#### Xử lý mất cân bằng cho biến Diabetes_012
+
+```{r}
+set.seed(123)
+
+train_2 <- smotenc(
+  df = train_0,
+  var = "Diabetes_012",
+  k = 5,
+  over_ratio = 1
+)
+
+```
+
+**Kiểm tra số nhóm và số lượng mỗi nhóm**
+
+```{r}
+with(train_2, table(Diabetes_012))
+```
+
+**Thống kê mô tả cho dữ liệu**
+```{r}
+summary(train_2)
+```
+
+## 6.2 Logistic
+
+### 6.2.1 Logistic giữa 21 biến so với biến Diabetes_binary trên dữ liệu gốc
+
+
+```{r}
+logistic_0 <- glm(
+  Diabetes_binary ~ . - Diabetes_012,
+  data = train_0,
+  family = binomial(link = "logit"),
+  weights = ifelse(train_0$Diabetes_binary == "1", 5, 1)
+)
+
+summary(logistic_0)
+```
+
+```{r}
+#Tỷ lệ cược
+exp(coef(logistic_0))
+```
+
+```{r }
+# Tính xác suất và phân loại xác suất
+
+prob <- predict(logistic_0, newdata = test, type = "response")
+pred <- ifelse(prob >= 0.5, "1", "0")
+
+pred <- factor(pred, levels = c("0", "1"))
+test$Diabetes_binary <- factor(test$Diabetes_binary, levels = c("0", "1"))
+
+confusionMatrix(
+  pred,
+  test$Diabetes_binary,
+  positive = "1"
+)
+```
+
+**Nhận xét**
+
+Mô hình đạt được Accuracy = 0.7341 (khá cáo), nhưng lại thiếu sự đáng tin vì chỉ số No Information Rate (NIR) = 0.8433, tức nếu luôn đoán tất cả là 0 (không tiểu đường) thì đã đúng tận 84.3%.\
+\=> Accuracy của mô hình không phản ánh chất lượng thực sự, mà là do dữ liệu mất cân bằng.\
+
+Phân tích theo Confusion Matrix, mô hình bắt được khá nhiều ca tiểu đường, nhưng đánh đổi bằng rất nhiều false positive (báo động tiểu đường giả - điều này không quan trọng khi mục tiêu của nhóm là sàng lọc y tế, để không sót người bệnh).\
+
+Tuy nhiên, với việc chỉ số Precision = 0.3418, tức chỉ 34% người bị chẩn đoán tiểu đường thật sự bị mắc bệnh, hay có thể nói cứ 10 người đi chẩn đoán thì đã có ~ 6-7 người bị báo nhầm, do đó quyết định điều chỉnh lại ngưỡng.\
+
+```{r }
+# Điều chỉnh ngưỡng xuống 0.3
+
+prob <- predict(logistic_0, newdata = test, type = "response")
+pred <- ifelse(prob >= 0.3, "1", "0")
+
+pred <- factor(pred, levels = c("0", "1"))
+test$Diabetes_binary <- factor(test$Diabetes_binary, levels = c("0", "1"))
+
+confusionMatrix(
+  pred,
+  test$Diabetes_binary,
+  positive = "1"
+)
+```
+
+**Nhận xét**
+
+Việc hạ ngưỡng phân loại xuống 0.3 giúp tăng đáng kể khả năng phát hiện các trường hợp tiểu đường (Sensitivity ≈ 92%), tuy nhiên phải đánh đổi bằng sự gia tăng mạnh các dự đoán dương tính giả, thể hiện qua Specificity và Precision giảm đáng kể.\
+
+Phân tích theo Confusion Matrix, mô hình bắt được rất nhiều ca tiểu đường, nhưng đánh đổi bằng một lượng lớn false positive (báo động tiểu đường giả - điều này không quan trọng khi mục tiêu của nhóm là sàng lọc y tế, để không sót người bệnh). \
+
+Trong bối cảnh sàng lọc y tế, ngưỡng này là phù hợp với mục tiêu không để sót người bệnh.
+
+### 6.2.2 Logistic giữa 21 biến so với biến Diabetes_binary trên dữ liệu cân bằng
+
+```{r}
+prop.table(table(train_0$Diabetes_binary))
+prop.table(table(train_1$Diabetes_binary))
+```
+
+```{r}
+logistic_1 <- glm(
+  Diabetes_binary ~ . -Diabetes_012,
+  data = train_1,
+  family = binomial(link = "logit"),
+)
+
+summary(logistic_1)
+```
+
+```{r}
+exp(coef(logistic_1))
+```
+
+
+```{r}
+prob <- predict(logistic_1, newdata = test, type = "response")
+pred <- ifelse(prob >= 0.3, "1", "0")
+
+pred <- factor(pred, levels = c("0", "1"))
+test$Diabetes_binary <- factor(test$Diabetes_binary, levels = c("0", "1"))
+
+confusionMatrix(
+  pred,
+  test$Diabetes_binary,
+  positive = "1"
+)
+```
+**Nhận xét**\
+
+Khi cố định ngưỡng phân loại ở mức 0.3, việc áp dụng SMOTENC để cân bằng dữ liệu không mang lại cải thiện đáng kể so với mô hình huấn luyện trên dữ liệu thực tế. Mặc dù số lượng dự đoán dương tính giả giảm nhẹ và Specificity tăng không đáng kể, các chỉ số quan trọng đối với bài toán sàng lọc như Sensitivity, NPV và Balanced Accuracy đều giảm.\
+
+\=> Trong bối cảnh ngưỡng phân loại đã được tối ưu theo mục tiêu sàng lọc, việc cân bằng dữ liệu bằng SMOTE không đem lại lợi ích bổ sung, thậm chí còn làm suy giảm nhẹ khả năng phát hiện bệnh.\
+
+
+### 6.2.3 Logistic giữa 11 biến so với biến Diabetes_binary trên dữ liệu gốc
+
+```{r}
+logistic_2 <- glm(
+  Diabetes_binary ~ 
+    GenHlth + HighBP + BMI + Age + 
+    HighChol + DiffWalk + Income + PhysHlth + 
+    HeartDiseaseorAttack + Education + PhysActivity,
+  data = train_0,
+  family = binomial(link = "logit")
+)
+
+summary(logistic_2)
+```
+
+```{r}
+exp(coef(logistic_2))
+```
+
+```{r}
+prob <- predict(logistic_2, newdata = test, type = "response")
+pred <- ifelse(prob >= 0.3, "1", "0")
+
+pred <- factor(pred, levels = c("0", "1"))
+test$Diabetes_binary <- factor(test$Diabetes_binary,
+                                levels = c("0", "1"))
+
+confusionMatrix(
+  pred,
+  test$Diabetes_binary,
+  positive = "1"
+)
+```
+
+**Nhận xét**\
+
+Việc rút gọn mô hình xuống 11 biến có mức độ đóng góp cao giúp cải thiện đáng kể độ đặc hiệu và độ tin cậy của các dự đoán dương tính, thể hiện qua Specificity và Precision tăng rõ rệt. Tuy nhiên, sự cải thiện này đi kèm với việc suy giảm mạnh về Sensitivity, khi mô hình chỉ phát hiện được khoảng một nửa số ca tiểu đường.\
+
+
+So với mô hình sử dụng đầy đủ biến, mô hình 11 biến không còn phù hợp cho mục tiêu sàng lọc, nhưng lại cho thấy tiềm năng trong vai trò mô hình xác nhận, nơi ưu tiên giảm báo động giả hơn là phát hiện tối đa ca bệnh.\
+
+### 6.2.4 Logistic giữa 11 biến so với biến Diabetes_binary trên dữ liệu cân bằng
+
+```{r}
+logistic_3 <- glm(
+  Diabetes_binary ~
+    GenHlth + HighBP + BMI + Age + 
+    HighChol + DiffWalk + Income + PhysHlth + 
+    HeartDiseaseorAttack + Education + PhysActivity,
+  data = train_1,
+  family = binomial(link = "logit")
+)
+
+summary(logistic_3)
+```
+
+```{r}
+exp(coef(logistic_3))
+```
+
+```{r}
+prob <- predict(logistic_3, newdata = test, type = "response")
+pred <- ifelse(prob >= 0.6, "1", "0")
+
+pred <- factor(pred, levels = c("0", "1"))
+test$Diabetes_binary <- factor(test$Diabetes_binary, levels = c("0", "1"))
+
+confusionMatrix(
+  pred,
+  test$Diabetes_binary,
+  positive = "1"
+)
+```
+**Nhận xét**\
+
+So với mô hình 11 biến huấn luyện trên dữ liệu không cân bằng, mô hình sử dụng cùng tập biến nhưng được cân bằng bằng SMOTENC và điều chỉnh ngưỡng phân loại lên 0.6 cho thấy sự cải thiện rõ rệt về khả năng phát hiện bệnh, thể hiện qua Sensitivity và Balanced Accuracy tăng đáng kể. \
+
+Mặc dù độ đặc hiệu và độ tin cậy của dự đoán dương tính giảm, mức suy giảm này là chấp nhận được trong bối cảnh ưu tiên giảm bỏ sót bệnh. Do đó, cấu hình này đạt được sự cân bằng tốt hơn giữa phát hiện bệnh và kiểm soát báo động giả so với mô hình không SMOTE.\
+
+## 6.3 Multinominal Logistic
+### 6.3.1 Multinominal Logistic giữa 21 biến so với biến Diabetes_012 trên dữ liệu gốc
+
+```{r}
+multi_0 <- nnet::multinom(
+  Diabetes_012 ~ .-Diabetes_binary,
+  data = train_0,
+  maxit = 1000
+)
+
+summary(multi_0)
+```
+
+**Tính p-value**
+
+```{r}
+z <- summary(multi_0)$coefficients /
+     summary(multi_0)$standard.errors
+
+p_values <- 2 * (1 - pnorm(abs(z)))
+p_values
+```
+
+**Tỷ lệ cược - odds**
+
+```{r}
+exp(coef(multi_0))
+```
+
+**Dự đoán lớp**
+
+```{r}
+pred_class <- predict(multi_0, newdata = test, type = "class")
+pred_class <- factor(pred_class, levels = levels(test$Diabetes_012))
+confusionMatrix(pred_class, test$Diabetes_012)
+```
+**Nhận xét**\
+
+Dựa trên ma trận nhầm lẫn và các chỉ số đánh giá, mô hình multinomial logistic regression cho biến diabetes_012 cho thấy hiệu quả phân loại chưa tốt do dữ liệu mất cân bằng nghiêm trọng. Mặc dù Accuracy đạt 84.92%, cao hơn No Information Rate, kết quả này chủ yếu đến từ việc mô hình dự đoán rất tốt lớp chiếm đa số (Class 0) với Sensitivity 97.73%. Ngược lại, mô hình không dự đoán đúng bất kỳ mẫu nào của Class 1 (Sensitivity = 0%) và khả năng nhận diện Class 2 rất thấp (Sensitivity = 17.95%). Hệ số Kappa = 0.2012 và Balanced Accuracy quanh mức 0.5–0.58 cho thấy mức độ phân loại chỉ nhỉnh hơn ngẫu nhiên. Nhìn chung, mô hình chưa phù hợp cho bài toán dự báo nhiều mức khi dữ liệu chưa được cân bằng, cho thấy sự cần thiết phải áp dụng các kỹ thuật xử lý mất cân bằng hoặc chiến lược mô hình khác.\
+
+
+### 6.3.2 Multinominal Logistic giữa 21 biến so với biến Diabetes_012 trên dữ liệu cân bằng
+
+```{r}
+prop.table(table(train_0$Diabetes_012))
+prop.table(table(train_2$Diabetes_012))
+```
+
+
+```{r}
+multi_2 <- nnet::multinom(
+  Diabetes_012 ~ .,
+  data = train_2,
+  maxit = 1000
+)
+
+summary(multi_2)
+```
+
+**Tính p-value**
+
+```{r}
+z <- summary(multi_2)$coefficients /
+     summary(multi_2)$standard.errors
+
+p_values <- 2 * (1 - pnorm(abs(z)))
+p_values
+
+```
+
+**Tỷ lệ cược - odds**
+
+```{r }
+exp(coef(multi_2))
+```
+
+**Dự đoán lớp**
+
+```{r}
+pred_class <- predict(multi_2, newdata = test, type = "class")
+confusionMatrix(pred_class, test$Diabetes_012)
+```
+
+**Nhận xét**\
+
+Dựa trên ma trận nhầm lẫn và các chỉ số đánh giá, mô hình multinomial logistic regression sau khi áp dụng SMOTE cho thấy hiệu quả phân loại được cải thiện rõ rệt. Độ chính xác đạt 93.49%, cao hơn đáng kể so với No Information Rate (84.33%), cùng với P-value < 2.2e-16 khẳng định ý nghĩa thống kê của mô hình; hệ số Kappa = 0.7632 cho thấy mức độ đồng thuận cao. Mô hình phân loại gần như hoàn hảo lớp 0, đồng thời cải thiện khả năng nhận diện các lớp thiểu số: lớp 1 đạt Sensitivity 53.64% (dù PPV còn thấp), và lớp 2 đạt Sensitivity 59.01% với Balanced Accuracy 79.04%. Nhìn chung, SMOTE giúp nâng cao hiệu quả cho các lớp thiểu số, tuy nhiên lớp tiền tiểu đường vẫn cần được cải thiện thêm.\
+
+### 6.3.3 Multinominal Logistic giữa 11 biến so với biến Diabetes_012 trên dữ liệu gốc
+
+```{r}
+multi_1 <- nnet::multinom(
+  Diabetes_012 ~ 
+    GenHlth + HighBP + BMI + Age + 
+    HighChol + DiffWalk + Income + PhysHlth + 
+    HeartDiseaseorAttack + Education + PhysActivity,
+  data = train_0,
+  maxit = 1000
+)
+
+summary(multi_1)
+```
+
+**Tính p-value**
+
+```{r}
+z1 <- summary(multi_1)$coefficients /
+     summary(multi_1)$standard.errors
+
+p_values1 <- 2 * (1 - pnorm(abs(z)))
+p_values1
+```
+
+**Tỷ lệ cược - odds**
+
+```{r}
+exp(coef(multi_1))
+```
+
+**Dự đoán lớp**
+
+
+```{r}
+pred_class <- predict(multi_1, newdata = test, type = "class")
+pred_class <- factor(pred_class, levels = levels(test$Diabetes_012))
+confusionMatrix(pred_class, test$Diabetes_012)
+
+```
+**Nhận xét**\
+
+Dù đạt Accuracy = 84.79%, kết quả này gần như trùng với No Information Rate (84.33%), cho thấy hiệu năng tổng thể của mô hình chủ yếu xuất phát từ việc ưu tiên dự đoán lớp phổ biến (Class 0) hơn là khả năng phân biệt giữa các lớp. Giá trị Kappa = 0.1891 cho thấy mức độ nhất quán giữa dự đoán và thực tế còn thấp, và mặc dù chênh lệch giữa Accuracy và NIR có ý nghĩa thống kê, mức cải thiện này chưa mang lại hiệu quả đáng kể về mặt thực tiễn. Thực tế, mô hình thể hiện sự lệch lớp rõ rệt khi nhận diện rất tốt Class 0 (Sensitivity 97.77%, Detection Prevalence 95.62%), nhưng không dự đoán đúng bất kỳ trường hợp nào của Class 1, đồng thời chỉ phát hiện được một tỷ lệ rất nhỏ Class 2 (Sensitivity 16.79%).\
+
+### 6.3.4 Multinominal Logistic giữa 11 biến so với biến Diabetes_012 trên dữ liệu cân bằng
+
+```{r}
+multi_3 <- nnet::multinom(
+  Diabetes_012 ~
+    GenHlth + HighBP + BMI + Age + 
+    HighChol + DiffWalk + Income + PhysHlth + 
+    HeartDiseaseorAttack + Education + PhysActivity,
+  data = train_2,
+  maxit = 1000
+)
+
+summary(multi_3)
+```
+
+**Tính p-value**
+
+```{r}
+z <- summary(multi_3)$coefficients /
+     summary(multi_3)$standard.errors
+
+p_values <- 2 * (1 - pnorm(abs(z)))
+p_values
+
+```
+
+**Tỷ lệ cược - odds**
+
+```{r }
+exp(coef(multi_3))
+```
+
+**Dự đoán lớp**
+
+```{r}
+pred_class <- predict(multi_3, newdata = test, type = "class")
+confusionMatrix(pred_class, test$Diabetes_012)
+```
+**Nhận xét**\
+
+Kết quả cho thấy mô hình đã cải thiện rõ rệt khả năng nhận diện các lớp thiểu số so với trường hợp chưa cân bằng dữ liệu, dù độ chính xác tổng thể giảm xuống.\
+
+Cụ thể, Accuracy = 61.81% thấp hơn đáng kể so với No Information Rate = 84.33%, cho thấy mô hình không còn dự đoán thiên lệch vào lớp chiếm đa số, mà đã phân bố dự đoán cân bằng hơn giữa các lớp. Điều này được phản ánh qua Detection Prevalence của Class 1 và Class 2 lần lượt là 22.00% và 21.71%, cao hơn nhiều so với trước. Kappa = 0.2227 tuy vẫn ở mức thấp–trung bình nhưng đã cho thấy sự cải thiện nhất định về mức độ đồng thuận so với mô hình chưa xử lý mất cân bằng.
+
+Nhìn chung, việc áp dụng SMOTE giúp mô hình giảm mạnh thiên lệch về lớp 0 và nâng cao khả năng phát hiện các lớp thiểu số, đặc biệt là Class 1 và Class 2. Tuy nhiên, độ chính xác tổng thể giảm và độ tin cậy dự đoán đối với Class 1 còn thấp, cho thấy cần tiếp tục cân nhắc các hướng cải tiến như điều chỉnh ngưỡng phân loại, tinh chỉnh tham số, hoặc thử nghiệm các mô hình phi tuyến để đạt hiệu quả phân loại tốt hơn.
+
+
+## 6.4 GAM logistic
+
+Nhóm tiếp tục tiến hành mở rộng mô hình Logistic bằng cách mô hình hóa ảnh hưởng của biến liên tục dưới dạng hàm trơn, giúp bắt quan hệ phi tuyến.
+
+### Mô hình GAM giữa 21 biến so với biến Diabetes_binary
+```{r}
+glimpse(df_model)
+```
+
+```{r}
+bin_vars <- c(
+  "HighBP","HighChol","CholCheck","Smoker","Stroke","HeartDiseaseorAttack",
+  "PhysActivity","DiffWalk","Fruits","Veggies","HvyAlcoholConsump",
+  "AnyHealthcare","NoDocbcCost"
+)
+```
+
+```{r}
+table(train_1$Diabetes_binary)
+```
+
+
+```{r}
+w <- ifelse(train_1$Diabetes_binary == "1", 5, 1)
+
+gam_fit <- gam(
+  Diabetes_binary ~
+    s(BMI, k = 10) +
+    Age + GenHlth + Education + Income +
+    s(MentHlth, k = 8) +
+    s(PhysHlth, k = 8) +
+    HighBP + HighChol + CholCheck + Smoker + Stroke + HeartDiseaseorAttack + Sex +
+    PhysActivity + DiffWalk + Fruits + Veggies + HvyAlcoholConsump +
+    AnyHealthcare + NoDocbcCost, 
+  data = train_1,
+  family = binomial(link = "logit"),
+  method = "REML"
+)
+```
+
+```{r}
+summary(gam_fit)
+```
+
+```{r}
+p_test <- predict(gam_fit, newdata = test, type = "response")
+roc_obj <- pROC::roc(test$Diabetes_binary, p_test, quiet = TRUE)
+auc_val <- as.numeric(pROC::auc(roc_obj))
+auc_val
+```
+
+```{r}
+table(test$Diabetes_binary, useNA = "ifany")
+levels(test$Diabetes_binary)
+```
+
+
+```{r}
+pred_class <- ifelse(p_test >= 0.5, 1, 0)
+tab <- table(Predicted = pred_class, Actual = test$Diabetes_binary)
+tab
+```
+```{r}
+pred_factor <- factor(pred_class, levels = c(0, 1))
+true_factor <- factor(test$Diabetes_binary, levels = c(0, 1))
+
+confusionMatrix(pred_factor, true_factor, positive = "1")
+```
+**Nhận xét:**\
+\- Accuracy = 73.04%, mô hình dự đoán đúng khoảng 73% tổng số quan sát trên tập kiểm tra.\
+\- Precision (Pos Pred Value) = 33.73% còn thấp, cho thấy trong các dự đoán “1” thì chỉ khoảng 1/3 là đúng → False Positive vẫn khá nhiều.\
+\- Sensitivity (Recall lớp 1) = 74.75%, mô hình phát hiện được phần lớn các trường hợp thuộc lớp 1 (khả năng “bắt bệnh” tương đối tốt).\
+\- Kappa = 0.3175 cho thấy mức độ đồng thuận giữa dự đoán và thực tế ở mức trung bình, mô hình có cải thiện nhưng chưa mạnh.
+
+#### Ảnh hưởng phi tuyến của BMI, MentHlth và PhysHlth trong mô hình GAM Logistic
+```{r}
+par(mfrow = c(2, 3), oma = c(0,0,6,0))
+plot(gam_fit, pages = 1, shade = TRUE, seWithMean = TRUE)
+title("Ảnh hưởng phi tuyến của BMI, MentHlth và PhysHlth (theo mô hình gam_fit)", outer = TRUE)
+```
+**Nhận xét:** \
+\- BMI: Thấy rằng ảnh hưởng của BMI tăng mạnh ở vùng thấp -> trung bình, sau đó tăng chậm và đạt đỉnh khoảng BMI ~ 35-45. Sau ngưỡng này, đường cong có xu hướng giảm nhẹ khi BMI rất cao, cho thấy quan hệ không tuyến tính hoàn toàn.\
+\- MentHlth: Đường cong khá phẳng, dao động nhẹ quanh mức 0 → chứng tỏ MentHlth ảnh hưởng yếu lên xác suất lớp 1 trong mô hình này. Có xu hướng tăng nhẹ ở mức MentHlth cao (khoảng 20–25 ngày), nhưng nhìn chung tác động không mạnh.\
+\- PhysHlth: PhysHlth có xu hướng tăng dần khi số ngày sức khỏe thể chất kém tăng, đặc biệt ở vùng khoảng 20–25 ngày.\
+\- Nhìn chung trong 3 biến, BMI có ảnh hưởng rõ và mạnh nhất, còn MentHlth và PhysHlth ảnh hưởng nhẹ hơn và chủ yếu thể hiện biến thiên nhỏ theo hướng phi tuyến.\
+
+
+### Mô hình GAM giữa 21 biến so với biến Diabetes_012
+
+```{r}
+table(train_2$Diabetes_012)
+```
+
+```{r}
+train_2 <- train_2 |>
+  mutate(
+    y0 = factor(if_else(Diabetes_012 == 0, 1, 0), levels = c(0,1)),
+    y1 = factor(if_else(Diabetes_012 == 1, 1, 0), levels = c(0,1)),
+    y2 = factor(if_else(Diabetes_012 == 2, 1, 0), levels = c(0,1))
+  )
+```
+
+```{r}
+gam0 <- mgcv::gam(
+  y0 ~ s(BMI, k=10) + s(MentHlth, k=10) + s(PhysHlth, k=10) +
+    HighBP + HighChol + CholCheck + Smoker + Stroke + HeartDiseaseorAttack +
+    PhysActivity + DiffWalk + Fruits + Veggies + HvyAlcoholConsump +
+    AnyHealthcare + NoDocbcCost +
+    Sex + Age + Education + Income + GenHlth,
+  data = train_2,
+  family = binomial(link="logit"),
+  method = "REML"
+)
+
+gam1 <- mgcv::gam(
+  y1 ~ s(BMI, k=10) + s(MentHlth, k=10) + s(PhysHlth, k=10) +
+    HighBP + HighChol + CholCheck + Smoker + Stroke + HeartDiseaseorAttack +
+    PhysActivity + DiffWalk + Fruits + Veggies + HvyAlcoholConsump +
+    AnyHealthcare + NoDocbcCost +
+    Sex + Age + Education + Income + GenHlth,
+  data = train_2,
+  family = binomial(link="logit"),
+  method = "REML"
+)
+
+gam2 <- mgcv::gam(
+  y2 ~ s(BMI, k=10) + s(MentHlth, k=10) + s(PhysHlth, k=10) +
+    HighBP + HighChol + CholCheck + Smoker + Stroke + HeartDiseaseorAttack +
+    PhysActivity + DiffWalk + Fruits + Veggies + HvyAlcoholConsump +
+    AnyHealthcare + NoDocbcCost +
+    Sex + Age + Education + Income + GenHlth,
+  data = train_2,
+  family = binomial(link="logit"),
+  method = "REML"
+)
+```
+
+```{r}
+p0 <- predict(gam0, newdata = test, type = "response")
+p1 <- predict(gam1, newdata = test, type = "response")
+p2 <- predict(gam2, newdata = test, type = "response")
+
+pred_class <- apply(cbind(p0, p1, p2), 1, which.max) - 1
+pred_class <- factor(pred_class, levels = c(0,1,2))
+
+table(True = test$Diabetes_012, Pred = pred_class)
+```
+
+```{r}
+cm_caret <- confusionMatrix(
+  data = factor(pred_class, levels = c(0,1,2)),
+  reference = factor(test$Diabetes_012, levels = c(0,1,2))
+)
+cm_caret
+```
+**Nhận xét:**\
+\- Accuracy = 64.31%, cho thấy mô hình chỉ dự đoán đúng ở mức trung bình.
+\- Với lớp 0 (không tiểu đường), mô hình hoạt động khá tốt: Sensitivity = 66.57% và Precision = 94.36%, nghĩa là dự đoán lớp 0 tương đối đáng tin cậy.\
+\- Với lớp 1 (tiền tiểu đường), mô hình dự đoán kém nhất: Sensitivity = 27.39% và Precision = 2.46%, cho thấy mô hình bỏ sót nhiều và các dự đoán lớp 1 thường không chính xác.\
+\- Với lớp 2 (tiểu đường), mô hình đạt mức trung bình: Sensitivity = 55.03% và Precision = 36.30%, tức là vẫn còn nhầm lẫn đáng kể với các lớp còn lại.
+
+
+```{r}
+par(mfrow = c(2, 3), oma = c(0,0,6,0))
+plot(gam0, pages = 1, shade = TRUE, seWithMean = TRUE)
+title("Ảnh hưởng phi tuyến của BMI, MentHlth và PhysHlth (theo mô hình gam0)", outer = TRUE)
+```
+
+```{r}
+par(mfrow = c(2, 3), oma = c(0,0,6,0))
+plot(gam1, pages = 1, shade = TRUE, seWithMean = TRUE)
+title("Ảnh hưởng phi tuyến của BMI, MentHlth và PhysHlth (theo mô hình gam1)", outer = TRUE)
+```
+
+```{r}
+par(mfrow = c(2, 3), oma = c(0,0,6,0))
+plot(gam2, pages = 1, shade = TRUE, seWithMean = TRUE)
+title("Ảnh hưởng phi tuyến của BMI, MentHlth và PhysHlth (theo mô hình gam_2)", outer = TRUE)
+```
+
+**Nhận xét:**\
+\- BMI là biến có tác động phi tuyến mạnh và ổn định nhất, ảnh hưởng thay đổi theo từng lớp (0/1/2).\
+\- MentHlth là biến tín hiệu yếu, không phải yếu tố phân biệt mạnh giữa các lớp.\
+\- PhysHlth nhìn chung ít tác động hơn BMI, chủ yếu dao động nhỏ và không tạo ranh giới mạnh giữa các lớp.\
+
+### Mô hình GAM giữa 11 biến so với biến Diabetes_binary
+```{r}
+glimpse(df_model)
+```
+
+```{r}
+bin_vars <- c(
+  "HighBP","HighChol","CholCheck","Smoker","Stroke","HeartDiseaseorAttack",
+  "PhysActivity","DiffWalk","Fruits","Veggies","HvyAlcoholConsump",
+  "AnyHealthcare","NoDocbcCost"
+)
+```
+
+```{r}
+table(train_1$Diabetes_binary)
+```
+
+
+```{r}
+w <- ifelse(train_1$Diabetes_binary == "1", 5, 1)
+
+gam_fit_1 <- gam(
+  Diabetes_binary ~
+    s(BMI, k = 10) +
+    Age + GenHlth + Education + Income +
+    s(PhysHlth, k = 8) +
+    HighBP + HighChol + HeartDiseaseorAttack +
+    PhysActivity + DiffWalk, 
+  data = train_1,
+  family = binomial(link = "logit"),
+  method = "REML"
+)
+```
+
+```{r}
+summary(gam_fit_1)
+```
+
+```{r}
+p_test1 <- predict(gam_fit_1, newdata = test, type = "response")
+roc_obj1 <- pROC::roc(test$Diabetes_binary, p_test1, quiet = TRUE)
+auc_val1 <- as.numeric(pROC::auc(roc_obj1))
+auc_val1
+```
+
+```{r}
+table(test$Diabetes_binary, useNA = "ifany")
+levels(test$Diabetes_binary)
+```
+
+
+```{r}
+pred_class1 <- ifelse(p_test1 >= 0.5, 1, 0)
+tab1 <- table(Predicted = pred_class1, Actual = test$Diabetes_binary)
+tab
+```
+```{r}
+pred_factor1 <- factor(pred_class1, levels = c(0, 1))
+true_factor1 <- factor(test$Diabetes_binary, levels = c(0, 1))
+
+confusionMatrix(pred_factor1, true_factor1, positive = "1")
+```
+**Nhận xét:**\
+\- Mô hình dự đoán đúng không tiểu đường (TN) là 30,804 trường hợp, và dự đoán đúng tiểu đường (TP) là 5,981 trường hợp. Tuy nhiên vẫn có 11,984 trường hợp không tiểu đường bị dự đoán nhầm thành tiểu đường (False Positive), và 1,967 trường hợp tiểu đường bị bỏ sót (False Negative).\
+
+\- Accuracy = 72.5%, nhưng thấp hơn NIR = 84.33%, cho thấy nếu chỉ nhìn accuracy thì mô hình chưa vượt được baseline do dữ liệu mất cân bằng. Balanced Accuracy = 73.62%, phản ánh mô hình có khả năng phân biệt hai lớp ở mức khá ổn khi xét cân bằng cả hai nhóm.\
+
+\- Sensitivity = 75.25%, mô hình phát hiện đúng khoảng 75% người bị tiểu đường → khả năng “bắt bệnh” khá tốt. Tuy nhiên Precision (PPV) = 33.29% còn thấp, tức là trong những người được dự đoán “tiểu đường”, chỉ khoảng 1/3 là đúng, mô hình còn tạo ra khá nhiều cảnh báo sai.\
+
+```{r}
+par(mfrow = c(2, 2), oma = c(0,0,6,0))
+plot(gam_fit_1, pages = 1, shade = TRUE, seWithMean = TRUE)
+title("Ảnh hưởng phi tuyến của BMI, MentHlth và PhysHlth (theo mô hình gam_fit_1)", outer = TRUE)
+```
+**Nhận xét:** Vẫn tương tự như các mô hình trước, BMI là biến quan trọng và có tác động mạnh nhất, còn PhysHlth có ảnh hưởng nhẹ hơn và biến thiên không quá rõ rệt.
+
+# VII. Đề xuất loại bỏ biến theo phương pháp đệ quy
+```{r}
+#Cài đặt thư viện
+if (!requireNamespace("caret", quietly = TRUE)) install.packages("caret")
+if (!requireNamespace("randomForest", quietly = TRUE)) install.packages("randomForest")
+```
+
+```{r}
+glimpse(df$Diabetes_binary)
+```
+
+```{r}
+#Lấy ngẫu nhiên 5k quan sát từ bộ dữ liệu
+set.seed(123)
+sample_index <- sample(nrow(df), 5000)
+df_samp <- df[sample_index,]
+```
+
+```{r}
+glimpse(df_samp)
+```
+
+
+```{r}
+#Chia tập để train và tập test
+target_name <- "Diabetes_binary"
+```
+
+```{r}
+feature_names <- c(
+  "HighBP","HighChol","CholCheck","BMI","Smoker","Stroke","HeartDiseaseorAttack",
+  "PhysActivity","Fruits","Veggies","HvyAlcoholConsump","AnyHealthcare","NoDocbcCost",
+  "GenHlth","MentHlth","PhysHlth","DiffWalk","Sex","Age","Education","Income"
+)
+set.seed(123)
+trainIndex <- createDataPartition(df_samp[[target_name]], p = 0.8, list = FALSE)
+train_df <- df_samp[trainIndex, ]
+test_df  <- df_samp[-trainIndex, ]
+```
+
+```{r}
+table(train_df$Diabetes_binary)
+```
+
+
+```{r}
+train_df2 <- train_df %>%
+  dplyr::select(all_of(target_name), all_of(feature_names)) %>%
+  tidyr::drop_na()
+```
+
+```{r}
+train_df2[[target_name]] <- factor(train_df2[[target_name]], levels = c("0","1"))
+
+y <- train_df2[[target_name]]
+x <- train_df2 %>% dplyr::select(all_of(feature_names))
+```
+
+```{r}
+glimpse(y)
+```
+
+```{r}
+# Check 
+stopifnot(ncol(x) == 21)
+stopifnot(nrow(x) == length(y))
+table(y)
+
+#Huấn luyện mô hình
+control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+
+set.seed(123)
+rfe_fit <- rfe(
+  x = x,
+  y = y,
+  sizes = 1:21,
+  rfeControl = control,
+  metric = "Accuracy"
+)
+
+rfe_fit
+predictors(rfe_fit)
+plot(rfe_fit, type = c("g","o"))
+```
+
+**Kết luận: **Tập biến rút gọn đạt Accuracy tương đương so với mô hình đầy đủ 21 biến
+, cho thấy việc loại bỏ biến là hợp lý và không làm suy giảm hiệu năng.

@@ -1,0 +1,78 @@
+---
+title: "05 - Hồi quy Logistic và Multinomial Logistic"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/helpers.R")
+library(nnet)
+m <- lapply(split_data(load_data()), to_model_df)   # train / valid / test
+```
+
+## Quy trình đánh giá (khác bản gốc)
+
+- Chia **70 / 15 / 15** (train / validation / test), phân tầng theo `Diabetes_012`.
+- **SMOTE-NC chỉ áp dụng trên train.**
+- **Ngưỡng phân loại chọn trên validation** (Youden), test chỉ dùng để báo cáo. Bản gốc chọn 0.3 và 0.6 bằng cách nhìn kết quả test.
+- Không dùng trọng số lớp riêng cho một mô hình (bản gốc dùng weight = 5 cho `logistic_0` nhưng không cho `logistic_2`).
+- Báo cáo AUC, độ nhạy, độ đặc hiệu, precision, balanced accuracy, **kèm baseline đoán toàn lớp 0**; accuracy đứng một mình không có nghĩa.
+
+## Logistic nhị phân: 2 cách dữ liệu x 2 tập biến
+
+```{r logistic}
+train_sets <- list(original = m$train[, c("Diabetes_binary", PREDICTORS)],
+                   smote    = smote_train(m$train, "Diabetes_binary"))
+var_sets <- list(all21 = PREDICTORS, sel11 = SELECTED_VARS)
+
+metrics <- list(); coefs <- list()
+for (s in names(train_sets)) for (v in names(var_sets)) {
+  assert_no_target(var_sets[[v]])
+  fit <- glm(reformulate(var_sets[[v]], "Diabetes_binary"), data = train_sets[[s]], family = binomial)
+  p_valid <- predict(fit, m$valid, type = "response")
+  p_test  <- predict(fit, m$test,  type = "response")
+  thr <- youden_threshold(m$valid$Diabetes_binary, p_valid)
+  id <- paste(s, v, sep = "_")
+  metrics[[id]] <- bind_rows(
+    binary_metrics(m$test$Diabetes_binary, p_test, 0.5) |> mutate(rule = "threshold_0.5"),
+    binary_metrics(m$test$Diabetes_binary, p_test, thr) |> mutate(rule = "youden_on_validation")
+  ) |> mutate(model = id, .before = 1)
+  co <- coef(summary(fit))
+  coefs[[id]] <- tibble(model = id, term = rownames(co), estimate = co[, 1], se = co[, 2],
+                        p_value = co[, 4], odds_ratio = exp(co[, 1]))
+}
+logistic_metrics <- bind_rows(metrics)
+logistic_metrics |> mutate(across(where(is.numeric), \(x) round(x, 4)))
+save_csv(logistic_metrics, "logistic_metrics")
+save_csv(bind_rows(coefs), "logistic_coefficients")
+```
+
+## Multinomial logistic trên `Diabetes_012`
+
+`Diabetes_binary` **không** nằm trong tập biến giải thích (bản gốc để lọt biến này vào mô hình
+`multi_2`, tạo ra con số 93.49% sai).
+
+```{r multinom}
+mt_train <- list(original = m$train[, c("Diabetes_012", PREDICTORS)],
+                 smote    = smote_train(m$train, "Diabetes_012"))
+mt_rows <- list(); mt_cm <- list(); mt_rrr <- NULL
+for (s in names(mt_train)) for (v in names(var_sets)) {
+  assert_no_target(var_sets[[v]])
+  fit <- multinom(reformulate(var_sets[[v]], "Diabetes_012"), data = mt_train[[s]],
+                  maxit = 300, trace = FALSE)
+  res <- multiclass_metrics(m$test$Diabetes_012, predict(fit, m$test))
+  id <- paste(s, v, sep = "_")
+  mt_rows[[id]] <- res$summary |> mutate(model = id, .before = 1)
+  mt_cm[[id]] <- res$confusion
+  if (id == "original_sel11") mt_rrr <- exp(t(coef(fit)))
+}
+multinom_metrics <- bind_rows(mt_rows)
+multinom_metrics |> mutate(across(where(is.numeric), \(x) round(x, 4)))
+save_csv(multinom_metrics, "multinomial_metrics")
+mt_cm
+if (!is.null(mt_rrr)) save_csv(as.data.frame(mt_rrr) |> rownames_to_column("term"), "multinomial_rrr_sel11")
+```
+
+**Đọc kết quả.** Trên dữ liệu gốc, mô hình đoán gần như toàn bộ về lớp 0 (nhóm tiền tiểu đường gần như không nhận diện được)
+nên accuracy chỉ nhỉnh baseline. SMOTE kéo recall của lớp thiểu số lên nhưng phải đánh đổi bằng nhiều dương tính giả.
+Hiệu năng giữa tập 21 và 11 biến gần như tương đương.

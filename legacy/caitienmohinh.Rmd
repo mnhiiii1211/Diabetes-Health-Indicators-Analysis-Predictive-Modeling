@@ -1,0 +1,99 @@
+---
+title: "caitienmohinh"
+output: html_document
+date: "2026-01-15"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(emplik)
+library(caret)
+library(randomForest)
+```
+
+# I. EDA
+## 1.1 Đọc dữ liệu
+
+```{r}
+data_path <- "diabetes_012_health_indicators_BRFSS2015.csv"
+df <- read.csv(data_path)
+
+df <- df |>
+  mutate(Diabetes_binary = ifelse(Diabetes_012 >= 1, 1, 0))
+
+df |>
+  count(Diabetes_binary) |>
+  mutate(percentage = round(100 * n / sum(n), 2))
+```
+
+
+# VI. Đề xuất cải tiến mô hình 
+```{r}
+#Cài đặt thư viện
+if (!requireNamespace("caret", quietly = TRUE)) install.packages("caret")
+if (!requireNamespace("randomForest", quietly = TRUE)) install.packages("randomForest")
+```
+
+```{r}
+#Lấy ngẫu nhiên 1k quan sát từ bộ dữ liệu
+set.seed(123)
+sample_index <- sample(nrow(df), 8000)
+df_samp <- df[sample_index,]
+
+#Chia tập để train và tập test
+target_name <- "Diabetes_binary"
+
+feature_names <- c(
+  "HighBP","HighChol","CholCheck","BMI","Smoker","Stroke","HeartDiseaseorAttack",
+  "PhysActivity","Fruits","Veggies","HvyAlcoholConsump","AnyHealthcare","NoDocbcCost",
+  "GenHlth","MentHlth","PhysHlth","DiffWalk","Sex","Age","Education","Income"
+)
+set.seed(123)
+trainIndex <- createDataPartition(df_samp[[target_name]], p = 0.8, list = FALSE)
+train_df <- df_samp[trainIndex, ]
+test_df  <- df_samp[-trainIndex, ]
+
+train_df2 <- train_df %>%
+  dplyr::select(all_of(target_name), all_of(feature_names)) %>%
+  tidyr::drop_na()
+
+#Ép target thành factor để classification (để kết quả ra Accuracy/Kappa)
+train_df2[[target_name]] <- factor(train_df2[[target_name]],
+                                   levels = c(0,1),
+                                   labels = c("No","Yes"))
+
+y <- train_df2[[target_name]]
+x <- train_df2 %>% dplyr::select(all_of(feature_names))
+
+# Check 
+stopifnot(ncol(x) == 21)
+stopifnot(nrow(x) == length(y))
+table(y)
+
+#Huấn luyện mô hình
+control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+
+set.seed(123)
+rfe_fit <- rfe(
+  x = x,
+  y = y,
+  sizes = 1:21,
+  rfeControl = control,
+  metric = "Accuracy"
+)
+
+rfe_fit
+predictors(rfe_fit)
+plot(rfe_fit, type = c("g","o"))
+```
+
+**Nhận xét:**  \
+\- Kết quả RFE với Random Forest và 10-fold cross-validation cho thấy mô hình đạt
+độ chính xác cao nhất khi sử dụng **5 biến** (Accuracy ≈ 0.845).\
+\- Tập biến tối ưu được lựa chọn gồm: **GenHealth, HighBP, BMI, HeartDiseaseorAttack, Age**.\
+\=> Điều này cho thấy các yếu tố về sức khỏe tổng quát, chỉ số BMI, cao huyết áp,
+độ tuổi và cholesterol cao là những biến quan trọng nhất trong việc phân biệt
+giữa nhóm có và không có tiểu đường trong dữ liệu BRFSS 2015.
+
+**Kết luận: ** Vậy, việc sử dụng toàn bộ 21 biến không cải thiện đáng kể Accuracy,
+hàm ý rằng một tập biến nhỏ có thể đạt hiệu năng tương đương trong khi mô hình gọn hơn.

@@ -1,0 +1,81 @@
+---
+title: "01 - Khám phá dữ liệu (EDA)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/helpers.R")
+df <- load_data()
+```
+
+## Biến mục tiêu
+
+```{r target}
+class_dist <- df |> count(Diabetes_012) |> mutate(pct = round(100 * n / sum(n), 2))
+class_dist
+save_csv(class_dist, "eda_class_distribution")
+
+ggplot(class_dist, aes(factor(Diabetes_012), n)) +
+  geom_col() + geom_text(aes(label = paste0(pct, "%")), vjust = -0.3) +
+  labs(x = "Diabetes_012 (0 = không, 1 = tiền tiểu đường, 2 = tiểu đường)", y = "Số lượng") +
+  theme_minimal()
+```
+
+Dữ liệu mất cân bằng nặng; gộp 1 và 2 thành `Diabetes_binary` đưa tỉ lệ nhóm dương lên 15.76%.
+
+## BMI
+
+```{r bmi}
+bmi_summary <- df |> group_by(Diabetes_012) |>
+  summarise(n = n(), mean = mean(BMI), median = median(BMI), sd = sd(BMI))
+bmi_summary
+save_csv(bmi_summary, "eda_bmi_by_class")
+
+ggplot(df, aes(factor(Diabetes_binary), BMI)) + geom_boxplot(fill = "grey80") +
+  labs(x = "Diabetes_binary") + theme_minimal()
+```
+
+## Biến nhị phân: tỉ lệ theo nhóm
+
+```{r binary}
+prev <- sapply(BINARY_VARS, \(v) tapply(df[[v]], df$Diabetes_binary, mean) * 100) |>
+  t() |> as.data.frame() |> setNames(c("khong_tieu_duong_pct", "tieu_duong_pct")) |>
+  rownames_to_column("variable")
+prev
+save_csv(prev, "eda_binary_prevalence")
+```
+
+## Biến thứ bậc: **tỉ lệ** bệnh theo từng mức (không dùng số đếm thô)
+
+Số đếm trong nhóm bệnh bị chi phối bởi cỡ mẫu của từng mức, nên không dùng để kết luận
+"bệnh tập trung ở nhóm thu nhập/học vấn cao". Tỉ lệ bệnh theo mức mới là thước đo đúng.
+
+```{r ordinal}
+ord_rates <- bind_rows(lapply(ORDINAL_VARS, \(v)
+  df |> group_by(level = .data[[v]]) |>
+    summarise(n = n(), diabetes_rate = mean(Diabetes_binary), .groups = "drop") |>
+    mutate(variable = v)))
+save_csv(ord_rates, "eda_ordinal_diabetes_rate")
+
+ggplot(ord_rates, aes(level, diabetes_rate)) + geom_col() +
+  facet_wrap(~variable, scales = "free_x") +
+  labs(y = "P(tiểu đường hoặc tiền tiểu đường)") + theme_minimal()
+
+tibble(pair = "Age x Education", cramers_v = cramers_v(df$Age, df$Education))
+```
+
+Age và Education có liên hệ yếu-vừa, nhưng **Education vẫn được giữ** vì IV của nó (0.128) vượt ngưỡng
+chọn biến ở chương 04. (Báo cáo gốc nói loại Education ở mục 2.5 nhưng sau đó vẫn dùng nó.)
+
+## Tương quan Pearson với biến mục tiêu
+
+```{r cor}
+cors <- tibble(variable = PREDICTORS,
+               correlation = sapply(PREDICTORS, \(v) cor(df[[v]], df$Diabetes_binary))) |>
+  arrange(desc(abs(correlation)))
+save_csv(cors, "eda_pearson_with_target")
+
+ggplot(cors, aes(reorder(variable, correlation), correlation)) + geom_col() +
+  coord_flip() + labs(x = NULL, y = "Pearson r với Diabetes_binary") + theme_minimal()
+```

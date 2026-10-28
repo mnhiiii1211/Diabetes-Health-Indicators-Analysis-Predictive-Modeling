@@ -1,0 +1,47 @@
+---
+title: "07 - Recursive Feature Elimination (Random Forest)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/helpers.R")
+library(randomForest)
+df <- load_data()
+```
+
+Một cấu hình duy nhất cho toàn repo (bản gốc có hai lần chạy khác nhau: 8000 và 5000 mẫu, cho top-5 khác nhau):
+mẫu 5000 quan sát từ tập **train**, CV 10 lần, 200 cây, chọn kích thước nhỏ nhất trong vòng 1% Kappa so với tốt nhất.
+Chạy trên biến thô (số), không dùng nhãn nào khác làm biến giải thích.
+
+```{r rfe}
+set.seed(SEED)
+train <- df[split_data(df)$train |> rownames() |> as.integer(), ]
+samp  <- train[sample(nrow(train), 5000), ]
+x <- samp[, PREDICTORS]; assert_no_target(names(x))
+y <- factor(samp$Diabetes_binary, levels = 0:1, labels = c("No", "Yes"))
+
+ctrl <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+ctrl$functions$selectSize <- \(x, metric, maximize) pickSizeTolerance(x, metric, tol = 1, maximize)
+
+fit <- rfe(x, y, sizes = c(1:10, 15, 21), rfeControl = ctrl, metric = "Kappa", ntree = 200)
+fit
+```
+
+```{r rfe-results}
+baseline <- max(prop.table(table(y)))
+cat("Accuracy khi đoán toàn lớp đa số:", round(baseline, 4), "\n")
+res <- fit$results
+save_csv(res, "rfe_results")
+save_csv(tibble(feature = predictors(fit)), "rfe_selected")
+predictors(fit)
+
+ggplot(res, aes(Variables, Kappa)) +
+  geom_line() + geom_point() +
+  geom_errorbar(aes(ymin = Kappa - KappaSD, ymax = Kappa + KappaSD), width = 0.3, alpha = 0.5) +
+  theme_minimal()
+```
+
+**Đọc kết quả.** Accuracy giữa các kích thước tập biến chênh nhau trong phạm vi độ lệch chuẩn của CV và chỉ nhỉnh baseline
+đoán toàn lớp 0, nên dùng Kappa để so sánh. Kết luận an toàn là một tập nhỏ (khoảng 5 biến: GenHlth, BMI, HighBP, Age, DiffWalk
+hoặc tương tự) đạt hiệu năng ngang 21 biến, không phải một tập "tối ưu" duy nhất.

@@ -1,0 +1,39 @@
+---
+title: "04 - Chọn biến"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/helpers.R")
+df <- load_data()
+```
+
+Ba tiêu chí sàng lọc, tính trên **toàn bộ dữ liệu** vì chỉ dùng để gợi ý tập biến, không đo hiệu năng dự báo.
+
+```{r criteria}
+pearson <- tibble(variable = PREDICTORS,
+                  abs_r = sapply(PREDICTORS, \(v) abs(cor(df[[v]], df$Diabetes_binary))))
+chisq <- tibble(variable = BINARY_VARS,
+                chi_sq = sapply(BINARY_VARS, \(v)
+                  unname(chisq.test(table(df[[v]], df$Diabetes_binary), correct = FALSE)$statistic))) |>
+  mutate(chisq_rank = rank(-chi_sq))
+iv <- iv_table(df, "Diabetes_binary", PREDICTORS)
+
+summary_tbl <- tibble(variable = PREDICTORS) |>
+  left_join(pearson, "variable") |> left_join(chisq, "variable") |> left_join(iv, "variable") |>
+  mutate(pearson_keep = abs_r > 0.05, chisq_top10 = chisq_rank <= 10, iv_keep = iv > 0.10) |>
+  arrange(desc(iv))
+summary_tbl
+save_csv(summary_tbl, "feature_selection_summary")
+```
+
+```{r selected}
+selected <- summary_tbl |> filter(iv_keep) |> pull(variable)
+selected
+stopifnot(setequal(selected, SELECTED_VARS))   # hằng số trong R/helpers.R phải khớp
+save_csv(tibble(feature = selected), "selected_features")
+```
+
+**Kết luận.** 17 biến qua ngưỡng Pearson, 10 biến nhị phân đứng đầu theo chi-bình phương, 11 biến có IV > 0.10.
+Tập 11 biến theo IV được dùng cho các mô hình rút gọn. Đây là sàng lọc theo hướng dự báo, không phải bằng chứng nhân quả.

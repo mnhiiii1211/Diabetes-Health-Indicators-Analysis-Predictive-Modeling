@@ -1,0 +1,44 @@
+---
+title: "03 - Kiểm định giả thuyết"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/helpers.R")
+df <- load_data()
+set.seed(SEED)
+R_PERM <- 5000
+```
+
+Với n = 253,680 hầu như mọi kiểm định đều có p rất nhỏ, nên bên cạnh p-value ta báo cáo **cỡ hiệu ứng**
+(phi cho chi-bình phương, Cohen's d cho hoán vị) và hiệu chỉnh BH. P-value hoán vị tính theo
+(1 + số lần cực đoan) / (R + 1) nên không bao giờ bằng 0.
+
+## Chi-bình phương cho biến nhị phân
+
+```{r chisq}
+chi <- bind_rows(lapply(BINARY_VARS, \(v) {
+  tab <- table(df[[v]], df$Diabetes_binary)
+  t <- chisq.test(tab, correct = FALSE)
+  tibble(variable = v, chi_sq = unname(t$statistic), p_value = t$p.value,
+         phi = sqrt(unname(t$statistic) / sum(tab)))
+})) |>
+  mutate(p_adj_bh = p.adjust(p_value, "BH")) |> arrange(desc(chi_sq))
+chi
+save_csv(chi, "tests_chisq_binary")
+```
+
+## Kiểm định hoán vị cho biến định lượng và thứ bậc
+
+```{r perm}
+perm <- bind_rows(lapply(c(COUNT_VARS, ORDINAL_VARS), \(v)
+  perm_test(df[[v]], df$Diabetes_binary, R = R_PERM) |> mutate(variable = v, .before = 1))) |>
+  mutate(p_adj_bh = p.adjust(p_value, "BH"))
+perm
+save_csv(perm, "tests_permutation")
+```
+
+**Kết luận.** Ý nghĩa thống kê không đồng nghĩa với ý nghĩa thực tiễn: các biến có |phi| hoặc |d| lớn
+(HighBP, DiffWalk, HighChol, GenHlth, BMI) mới đáng quan tâm; AnyHealthcare, Sex, Fruits có cỡ hiệu ứng rất nhỏ
+dù p < 0.05.
